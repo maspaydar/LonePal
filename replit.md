@@ -4,6 +4,16 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-13**: Voice-First Mobile App + Streaming AI
+  - Chat screen rebuilt as voice-first interface with large microphone button
+  - Audio recording via expo-av, text-to-speech via expo-speech
+  - Streaming AI responses via SSE endpoint POST /api/mobile/respond-stream
+  - Gemini audio transcription for voice-to-text (no separate STT service needed)
+  - In-memory persona cache with 10-min TTL to reduce DB lookups
+  - Conversation history summarization for long conversations (>30 messages)
+  - Visual state indicators: listening (red), thinking (amber), speaking (green)
+  - Text input fallback available via "Type" button
+  - Upgraded to Gemini 2.0 Flash model
 - **2026-02-13**: Expo React Native Mobile App
   - Standalone Expo project in mobile/ directory with expo-router, expo-secure-store
   - PIN login, AI companion chat, safety status, check-in alerts, announcements screens

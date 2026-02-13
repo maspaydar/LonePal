@@ -14,7 +14,24 @@ function getAI(): GoogleGenAI | null {
 }
 
 function getModelName() {
-  return "gemini-1.5-flash";
+  return "gemini-2.0-flash";
+}
+
+const personaCache = new Map<number, { prompt: string; cachedAt: number }>();
+const PERSONA_CACHE_TTL = 10 * 60 * 1000;
+
+function getCachedPersonaPrompt(resident: Resident): string {
+  const cached = personaCache.get(resident.id);
+  if (cached && Date.now() - cached.cachedAt < PERSONA_CACHE_TTL) {
+    return cached.prompt;
+  }
+  const prompt = buildPersonaPrompt(resident);
+  personaCache.set(resident.id, { prompt, cachedAt: Date.now() });
+  return prompt;
+}
+
+export function invalidatePersonaCache(residentId: number): void {
+  personaCache.delete(residentId);
 }
 
 function buildPersonaPrompt(resident: Resident): string {
@@ -41,6 +58,40 @@ function buildPersonaPrompt(resident: Resident): string {
   }
 
   return prompt;
+}
+
+export function buildConversationContext(
+  allMessages: { role: string; content: string }[]
+): { role: string; content: string }[] {
+  const MAX_RECENT = 20;
+  const SUMMARIZE_THRESHOLD = 30;
+
+  if (allMessages.length <= MAX_RECENT) {
+    return allMessages;
+  }
+
+  if (allMessages.length > SUMMARIZE_THRESHOLD) {
+    const olderMessages = allMessages.slice(0, allMessages.length - MAX_RECENT);
+    const recentMessages = allMessages.slice(-MAX_RECENT);
+
+    const summaryParts: string[] = [];
+    for (const msg of olderMessages) {
+      const speaker = msg.role === "user" ? "Resident" : "Companion";
+      summaryParts.push(`${speaker}: ${msg.content.slice(0, 100)}`);
+    }
+
+    const summaryText = `[Earlier conversation summary - ${olderMessages.length} messages]\n` +
+      summaryParts.slice(-10).join("\n") +
+      (olderMessages.length > 10 ? `\n...and ${olderMessages.length - 10} earlier messages` : "");
+
+    return [
+      { role: "user", content: summaryText },
+      { role: "assistant", content: "I remember our earlier conversation. Let's continue." },
+      ...recentMessages,
+    ];
+  }
+
+  return allMessages.slice(-MAX_RECENT);
 }
 
 function getScenarioPrompt(scenarioType: string, escalationLevel: number, resident: Resident, triggerLocation?: string | null): string {
@@ -113,7 +164,7 @@ export async function generateAICheckIn(
   }
 
   try {
-    const personaPrompt = buildPersonaPrompt(resident);
+    const personaPrompt = getCachedPersonaPrompt(resident);
     const scenarioPrompt = getScenarioPrompt(scenarioType, escalationLevel, resident, triggerLocation);
 
     const systemInstruction = `${personaPrompt}\n\nCurrent situation: ${scenarioPrompt}\n\nIMPORTANT: Keep your response concise (2-3 sentences max). Be natural and human-like. Do not use clinical language.`;
@@ -121,7 +172,8 @@ export async function generateAICheckIn(
     const contents: any[] = [];
 
     if (conversationHistory && conversationHistory.length > 0) {
-      for (const msg of conversationHistory) {
+      const ctx = buildConversationContext(conversationHistory);
+      for (const msg of ctx) {
         contents.push({
           role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }],
@@ -169,7 +221,8 @@ export async function processResidentResponse(
   }
 
   try {
-    const personaPrompt = buildPersonaPrompt(resident);
+    const personaPrompt = getCachedPersonaPrompt(resident);
+    const ctx = buildConversationContext(conversationHistory);
 
     const analysisPrompt = `${personaPrompt}
 
@@ -193,9 +246,18 @@ Respond in this exact JSON format:
       };
     }
 
+    const contents: any[] = [];
+    for (const msg of ctx) {
+      contents.push({
+        role: msg.role === "assistant" ? "model" : "user",
+        parts: [{ text: msg.content }],
+      });
+    }
+    contents.push({ role: "user", parts: [{ text: analysisPrompt }] });
+
     const response = await aiClient.models.generateContent({
       model: getModelName(),
-      contents: [{ role: "user", parts: [{ text: analysisPrompt }] }],
+      contents,
       config: { maxOutputTokens: 300, temperature: 0.3 },
     });
 
@@ -211,7 +273,6 @@ Respond in this exact JSON format:
         };
       }
     } catch {
-      // JSON parsing failed, fall through
     }
 
     return {
@@ -226,6 +287,127 @@ Respond in this exact JSON format:
       isResolved: false,
       shouldEscalate: true,
     };
+  }
+}
+
+export async function streamCompanionResponse(
+  resident: Resident,
+  userMessage: string,
+  conversationHistory: { role: string; content: string }[],
+  onChunk: (text: string) => void
+): Promise<{ fullResponse: string; isResolved: boolean; shouldEscalate: boolean }> {
+  const aiClient = getAI();
+  if (!aiClient) {
+    const fallback = `Thank you for responding, ${resident.preferredName || resident.firstName}. I'm glad to hear from you!`;
+    onChunk(fallback);
+    return { fullResponse: fallback, isResolved: true, shouldEscalate: false };
+  }
+
+  const personaPrompt = getCachedPersonaPrompt(resident);
+  const name = resident.preferredName || resident.firstName;
+
+  const systemInstruction = `${personaPrompt}
+
+You are having a friendly voice conversation with ${name}. They are speaking to you through a voice interface on their phone.
+Keep your responses conversational, warm, and concise (2-4 sentences). Speak naturally as if talking to a friend.
+Do not use emojis, markdown, or special formatting - this will be read aloud.
+If they mention pain, falling, or needing help, express concern and let them know staff will be notified.
+
+IMPORTANT: First respond naturally, then on a NEW LINE add a JSON safety assessment:
+SAFETY_CHECK: {"safe": true/false, "needsHelp": true/false}`;
+
+  const contents: any[] = [];
+  for (const msg of conversationHistory) {
+    contents.push({
+      role: msg.role === "assistant" ? "model" : "user",
+      parts: [{ text: msg.content }],
+    });
+  }
+  contents.push({ role: "user", parts: [{ text: userMessage }] });
+
+  try {
+    const stream = await aiClient.models.generateContentStream({
+      model: getModelName(),
+      contents,
+      config: {
+        systemInstruction,
+        maxOutputTokens: 300,
+        temperature: 0.7,
+      },
+    });
+
+    let fullResponse = "";
+    for await (const chunk of stream) {
+      const text = chunk.text || "";
+      if (text) {
+        fullResponse += text;
+        const safetyIdx = fullResponse.indexOf("SAFETY_CHECK:");
+        if (safetyIdx === -1) {
+          onChunk(text);
+        } else {
+          const beforeSafety = text.split("SAFETY_CHECK:")[0];
+          if (beforeSafety) onChunk(beforeSafety);
+        }
+      }
+    }
+
+    let isResolved = true;
+    let shouldEscalate = false;
+    const safetyMatch = fullResponse.match(/SAFETY_CHECK:\s*(\{[\s\S]*?\})/);
+    if (safetyMatch) {
+      try {
+        const safety = JSON.parse(safetyMatch[1]);
+        isResolved = safety.safe !== false;
+        shouldEscalate = safety.needsHelp === true;
+      } catch {}
+      fullResponse = fullResponse.replace(/\n?SAFETY_CHECK:[\s\S]*$/, "").trim();
+    }
+
+    return { fullResponse, isResolved, shouldEscalate };
+  } catch (error) {
+    log(`Stream error: ${error}`, "ai-engine");
+    const fallback = `I'm sorry ${name}, I'm having trouble connecting right now. Please try again in a moment.`;
+    onChunk(fallback);
+    return { fullResponse: fallback, isResolved: true, shouldEscalate: false };
+  }
+}
+
+export async function transcribeAudio(audioBase64: string, mimeType: string = "audio/webm"): Promise<string> {
+  const aiClient = getAI();
+  if (!aiClient) {
+    throw new Error("AI not available for transcription");
+  }
+
+  try {
+    const response = await aiClient.models.generateContent({
+      model: getModelName(),
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: audioBase64,
+              },
+            },
+            {
+              text: "Transcribe this audio exactly as spoken. Return ONLY the transcription text, nothing else. If the audio is unclear or empty, respond with [unclear].",
+            },
+          ],
+        },
+      ],
+      config: { maxOutputTokens: 500, temperature: 0.1 },
+    });
+
+    const text = (response.text || "").trim();
+    if (!text || text === "[unclear]") {
+      throw new Error("Could not transcribe audio");
+    }
+    return text;
+  } catch (error) {
+    log(`Transcription error: ${error}`, "ai-engine");
+    throw error;
   }
 }
 

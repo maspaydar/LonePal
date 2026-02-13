@@ -78,6 +78,14 @@ export interface StatusResponse {
   name: string;
 }
 
+export interface StreamEvent {
+  type: 'transcription' | 'chunk' | 'done' | 'error';
+  text?: string;
+  isResolved?: boolean;
+  conversationId?: number;
+  message?: string;
+}
+
 async function getToken(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync(TOKEN_KEY);
@@ -173,6 +181,72 @@ export async function sendMessage(residentId: number, conversationId: number, me
   });
   if (!res.ok) throw new Error('Failed to send message');
   return res.json();
+}
+
+export async function sendVoiceMessage(
+  residentId: number,
+  conversationId: number,
+  options: { message?: string; audioBase64?: string; audioMimeType?: string },
+  onEvent: (event: StreamEvent) => void
+): Promise<void> {
+  const token = await getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const body: any = { residentId, conversationId };
+  if (options.message) body.message = options.message;
+  if (options.audioBase64) {
+    body.audioBase64 = options.audioBase64;
+    body.audioMimeType = options.audioMimeType || 'audio/m4a';
+  }
+
+  const res = await fetch(`${BASE_URL}/api/mobile/respond-stream`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to send message' }));
+    throw new Error(err.error || 'Failed to send message');
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error('Streaming not supported');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const event: StreamEvent = JSON.parse(line.slice(6));
+          onEvent(event);
+        } catch {}
+      }
+    }
+  }
+
+  if (buffer.startsWith('data: ')) {
+    try {
+      const event: StreamEvent = JSON.parse(buffer.slice(6));
+      onEvent(event);
+    } catch {}
+  }
 }
 
 export async function getProfile(): Promise<any> {

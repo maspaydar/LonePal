@@ -4,11 +4,21 @@ A React Native mobile app for senior residents, built with Expo. Connects to the
 
 ## Features
 
+- **Voice-First AI Chat** - Talk to your companion using your voice, with responses read aloud automatically
 - **PIN Login** - Simple username + 4-digit PIN authentication with large, senior-friendly text
-- **AI Companion Chat** - Full-screen conversation with your personalized Digital Twin AI
 - **Safety Status** - Color-coded badge showing current safety status (green/amber/red)
 - **Check-In Alerts** - Popup notifications when the system detects unusual inactivity
 - **Community Announcements** - View facility-wide broadcasts from administrators
+- **Text Fallback** - Optional text input for when voice isn't preferred
+
+## Voice Chat Flow
+
+1. Tap the large microphone button to start speaking
+2. Tap again to stop recording
+3. Your voice is sent to the backend and transcribed by Gemini AI
+4. The AI companion generates a personalized response
+5. The response is displayed on screen AND read aloud automatically
+6. Visual indicators show the current state: Listening (red), Thinking (amber), Speaking (green)
 
 ## Quick Start
 
@@ -30,12 +40,7 @@ A React Native mobile app for senior residents, built with Expo. Connects to the
 
 3. **Configure the server URL:**
 
-   Open `lib/api.ts` and change the `BASE_URL` to your Replit app's published URL:
-   ```typescript
-   let BASE_URL = 'https://your-replit-app.replit.app';
-   ```
-
-   Or you can set it from the login screen via "Server Settings".
+   You can set it from the login screen - enter your Replit app's published URL (e.g., `https://your-replit-app.replit.app`).
 
 4. **Start the Expo development server:**
    ```bash
@@ -67,16 +72,23 @@ mobile/
 │   ├── _layout.tsx         # Root layout with navigation
 │   ├── index.tsx           # Login screen
 │   ├── home.tsx            # Home dashboard
-│   ├── chat.tsx            # AI companion chat
+│   ├── chat.tsx            # Voice-first AI companion chat
 │   └── announcements.tsx   # Community broadcasts
 ├── lib/
-│   ├── api.ts              # API client for EchoPath backend
+│   ├── api.ts              # API client with streaming support
 │   ├── auth-context.tsx    # React auth context/provider
 │   └── colors.ts           # Color theme constants
 ├── app.json                # Expo configuration
 ├── package.json            # Dependencies
 └── tsconfig.json           # TypeScript config
 ```
+
+## Key Dependencies
+
+- `expo-speech` - Text-to-speech for reading AI responses aloud
+- `expo-av` - Audio recording for voice input
+- `expo-file-system` - Reading recorded audio files for upload
+- `expo-secure-store` - Secure storage for tokens and server URL
 
 ## API Endpoints Used
 
@@ -88,14 +100,17 @@ All requests go to the EchoPath Nexus backend:
 | `/api/mobile/logout` | POST | JWT | End session |
 | `/api/mobile/sync/:entityId/:userId` | GET | JWT | Sync dashboard data |
 | `/api/mobile/resident/:id/status` | GET | JWT | Get safety status |
-| `/api/mobile/respond` | POST | JWT | Send chat message |
+| `/api/mobile/respond` | POST | JWT | Send text chat message |
+| `/api/mobile/respond-stream` | POST | JWT | Send voice/text with streaming SSE response |
 | `/api/mobile/conversation` | POST | JWT | Create or get active conversation |
 | `/api/mobile/profile` | GET | JWT | Get resident profile |
 
 ## Design Principles
 
+- **Voice-first** - Primary interaction is through voice, not typing
 - **Large text** (18-24pt) for readability
 - **High contrast** colors with clear visual hierarchy
-- **Big touch targets** (48px minimum) for ease of use
+- **Big touch targets** (80px microphone button) for ease of use
 - **Minimal navigation** - three main screens only
-- **Color-coded safety** - green (safe), amber (monitoring), red (alert)
+- **Color-coded states** - visual feedback for listening, thinking, speaking
+- **Text-to-speech** - all AI responses are read aloud automatically

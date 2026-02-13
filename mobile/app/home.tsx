@@ -150,13 +150,13 @@ export default function HomeScreen() {
           accessibilityRole="button"
           accessibilityLabel="Talk to your companion"
         >
-          <Ionicons name="chatbubbles" size={32} color={colors.white} />
+          <Ionicons name="mic" size={32} color={colors.white} />
           <View style={styles.chatButtonText}>
             <Text style={styles.chatButtonTitle}>Talk to Your Companion</Text>
             <Text style={styles.chatButtonSub}>
               {syncData?.lastAIMessage
-                ? `Last message: "${syncData.lastAIMessage.content.slice(0, 50)}..."`
-                : 'Start a conversation'}
+                ? `Last chat: "${syncData.lastAIMessage.content.slice(0, 50)}..."`
+                : 'Tap to start a voice conversation'}
             </Text>
           </View>
         </TouchableOpacity>

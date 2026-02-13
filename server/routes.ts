@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from "ws";
-import { generateAICheckIn, processResidentResponse } from "./ai-engine";
+import { generateAICheckIn, processResidentResponse, streamCompanionResponse, transcribeAudio, buildConversationContext } from "./ai-engine";
 import { insertEntitySchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema, mobileLoginSchema } from "@shared/schema";
 import { log } from "./index";
 import { provisionEntityFolder } from "./tenant-folders";
@@ -360,6 +360,96 @@ export async function registerRoutes(
     } catch (error) {
       log(`Mobile respond error: ${error}`, "mobile-api");
       res.status(500).json({ error: "Failed to process response" });
+    }
+  });
+
+  app.post("/api/mobile/respond-stream", mobileAuthMiddleware, async (req, res) => {
+    try {
+      const { residentId, conversationId, message, audioBase64, audioMimeType } = req.body;
+
+      if (!residentId || !conversationId) {
+        return res.status(400).json({ error: "Missing residentId or conversationId" });
+      }
+
+      let userMessage = message;
+
+      if (audioBase64 && !userMessage) {
+        try {
+          userMessage = await transcribeAudio(audioBase64, audioMimeType || "audio/m4a");
+        } catch (err) {
+          return res.status(400).json({ error: "Could not understand audio. Please try again." });
+        }
+      }
+
+      if (!userMessage) {
+        return res.status(400).json({ error: "No message or audio provided" });
+      }
+
+      const resident = await storage.getResident(residentId);
+      if (!resident) return res.status(404).json({ error: "Resident not found" });
+
+      await storage.createMessage({ conversationId, role: "user", content: userMessage });
+
+      const pendingCheckIns = emergencyService.getPendingCheckIns();
+      for (const pending of pendingCheckIns) {
+        if (pending.residentId === residentId) {
+          emergencyService.clearPendingCheckIn(pending.alertId);
+          dailyLogger.info("mobile-api", `Cleared pending check-in (alert ${pending.alertId}) for resident ${residentId} due to voice response`);
+        }
+      }
+
+      const allMessages = await storage.getMessages(conversationId);
+      const rawHistory = allMessages.map(m => ({ role: m.role, content: m.content }));
+      const history = buildConversationContext(rawHistory);
+
+      const activeScens = await storage.getActiveScenariosForResident(residentId);
+      const activeScenario = activeScens.find(s => s.id === Number(req.body.scenarioId)) || activeScens[0];
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+
+      res.write(`data: ${JSON.stringify({ type: "transcription", text: userMessage })}\n\n`);
+
+      const result = await streamCompanionResponse(
+        resident,
+        userMessage,
+        history,
+        (chunk) => {
+          res.write(`data: ${JSON.stringify({ type: "chunk", text: chunk })}\n\n`);
+        }
+      );
+
+      await storage.createMessage({ conversationId, role: "assistant", content: result.fullResponse });
+
+      if (result.shouldEscalate && activeScenario) {
+        await storage.updateActiveScenario(activeScenario.id, { status: "staff_alerted" } as any);
+        await storage.createAlert({
+          entityId: resident.entityId,
+          residentId,
+          scenarioId: activeScenario.id,
+          severity: "critical",
+          title: `${resident.preferredName || resident.firstName} needs help`,
+          message: `Resident indicated they may need assistance via voice. Last message: "${userMessage}"`,
+        });
+        broadcastToClients({ type: "alert", data: { residentId, severity: "critical" } });
+      } else if (result.isResolved && activeScenario) {
+        await storage.resolveActiveScenario(activeScenario.id, "resident_response");
+        await storage.updateResidentStatus(residentId, "safe", new Date());
+        broadcastToClients({ type: "scenario_resolved", data: { id: activeScenario.id, residentId } });
+      }
+
+      res.write(`data: ${JSON.stringify({ type: "done", isResolved: result.isResolved, conversationId })}\n\n`);
+      res.end();
+    } catch (error) {
+      log(`Mobile stream respond error: ${error}`, "mobile-api");
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to process response" });
+      } else {
+        res.write(`data: ${JSON.stringify({ type: "error", message: "Something went wrong" })}\n\n`);
+        res.end();
+      }
     }
   });
 
