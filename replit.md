@@ -4,6 +4,12 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-13**: Phase 4 Facility Admin Dashboard UI
+  - Enhanced Nexus Dashboard with resident monitoring grid (status lights: Green/Active, Red/Alert)
+  - AI Insights panel: Gemini-powered mood analysis from last conversations per resident
+  - Community Broadcast: form to send announcements to all AI companions, delivered as companion messages
+  - community_broadcasts DB table for persistence
+  - API endpoints: GET/POST /api/entities/:id/broadcasts, GET /api/entities/:id/ai-insights
 - **2026-02-13**: Phase 2 Entity & User Management API
   - registryService layer for creating entities and managing residents
   - Privacy-first anonymous username generation (e.g. "Resident_7701") persisted in DB

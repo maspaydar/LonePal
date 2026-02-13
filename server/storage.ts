@@ -9,8 +9,10 @@ import {
   type Alert, type InsertAlert,
   type Conversation, type InsertConversation,
   type Message, type InsertMessage,
+  type CommunityBroadcast, type InsertCommunityBroadcast,
   users, entities, residents, sensors, motionEvents,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
+  communityBroadcasts,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
@@ -67,6 +69,11 @@ export interface IStorage {
   getRecentMessages(conversationId: number, limit?: number): Promise<Message[]>;
   createMessage(msg: InsertMessage): Promise<Message>;
   getActiveConversationForResident(entityId: number, residentId: number): Promise<Conversation | undefined>;
+
+  getCommunityBroadcasts(entityId: number, limit?: number): Promise<CommunityBroadcast[]>;
+  createCommunityBroadcast(broadcast: InsertCommunityBroadcast): Promise<CommunityBroadcast>;
+
+  getLatestConversationMessages(residentId: number, limit?: number): Promise<Message[]>;
 
   seedDemoData(entityId: number): Promise<void>;
 }
@@ -370,6 +377,33 @@ export class DatabaseStorage implements IStorage {
     for (const sc of defaultScenarios) {
       await this.createScenarioConfig(sc);
     }
+  }
+
+  async getCommunityBroadcasts(entityId: number, limit: number = 20): Promise<CommunityBroadcast[]> {
+    return db.select().from(communityBroadcasts)
+      .where(eq(communityBroadcasts.entityId, entityId))
+      .orderBy(desc(communityBroadcasts.createdAt))
+      .limit(limit);
+  }
+
+  async createCommunityBroadcast(broadcast: InsertCommunityBroadcast): Promise<CommunityBroadcast> {
+    const [created] = await db.insert(communityBroadcasts).values(broadcast).returning();
+    return created;
+  }
+
+  async getLatestConversationMessages(residentId: number, limit: number = 10): Promise<Message[]> {
+    const latestConv = await db.select()
+      .from(conversations)
+      .where(and(eq(conversations.residentId, residentId), isNull(conversations.scenarioId)))
+      .orderBy(desc(conversations.createdAt))
+      .limit(1);
+
+    if (latestConv.length === 0) return [];
+
+    return db.select().from(messages)
+      .where(eq(messages.conversationId, latestConv[0].id))
+      .orderBy(desc(messages.createdAt))
+      .limit(limit);
   }
 }
 

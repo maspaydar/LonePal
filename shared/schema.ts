@@ -143,7 +143,16 @@ export const insertScenarioConfigSchema = createInsertSchema(scenarioConfigs).om
 export const insertActiveScenarioSchema = createInsertSchema(activeScenarios).omit({ id: true, createdAt: true });
 export const insertAlertSchema = createInsertSchema(alerts).omit({ id: true, createdAt: true });
 export const insertConversationSchema = createInsertSchema(conversations).omit({ id: true, createdAt: true });
+export const communityBroadcasts = pgTable("community_broadcasts", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").notNull(),
+  senderName: text("sender_name").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
+export const insertCommunityBroadcastSchema = createInsertSchema(communityBroadcasts).omit({ id: true, createdAt: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -165,3 +174,5 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type CommunityBroadcast = typeof communityBroadcasts.$inferSelect;
+export type InsertCommunityBroadcast = z.infer<typeof insertCommunityBroadcastSchema>;

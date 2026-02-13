@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from "ws";
 import { generateAICheckIn, processResidentResponse } from "./ai-engine";
-import { insertEntitySchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema } from "@shared/schema";
+import { insertEntitySchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema } from "@shared/schema";
 import { log } from "./index";
 import { provisionEntityFolder } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
@@ -13,8 +13,18 @@ import { chatService } from "./services/chat-service";
 import { motionService } from "./services/motion-service";
 import { inactivityMonitor } from "./services/inactivity-monitor";
 import { emergencyService } from "./services/emergency-service";
+import { GoogleGenAI } from "@google/genai";
 
 let wss: WebSocketServer;
+let _insightsAI: GoogleGenAI | null = null;
+
+function getAIForInsights(): GoogleGenAI | null {
+  if (!process.env.GEMINI_API_KEY) return null;
+  if (!_insightsAI) {
+    _insightsAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return _insightsAI;
+}
 
 function broadcastToClients(data: any) {
   if (!wss) return;
@@ -586,6 +596,143 @@ export async function registerRoutes(
     } catch (error) {
       dailyLogger.error("test-ingest", `Intake processing failed: ${error}`);
       res.status(500).json({ error: "Failed to process intake transcript" });
+    }
+  });
+
+  // --- AI Mood Insights ---
+  app.get("/api/entities/:entityId/ai-insights", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const residentsList = await storage.getResidents(entityId);
+
+      const insights = await Promise.all(
+        residentsList.map(async (resident) => {
+          const recentMsgs = await storage.getLatestConversationMessages(resident.id, 6);
+          const userMsgs = recentMsgs.filter(m => m.role === "user");
+
+          let mood = "No recent conversations";
+          let moodScore = 0;
+
+          if (userMsgs.length > 0) {
+            const combined = userMsgs.map(m => m.content).join(" ");
+            const ai = getAIForInsights();
+
+            if (ai) {
+              try {
+                const result = await ai.models.generateContent({
+                  model: "gemini-1.5-flash",
+                  contents: `Analyze the following messages from a senior living resident and provide a brief one-sentence mood assessment (max 15 words). Also rate their emotional wellbeing from 1-5 (1=very concerning, 5=happy/engaged). Return ONLY a JSON object with "mood" (string) and "score" (number).\n\nMessages:\n${combined}`,
+                });
+                const text = result.text?.trim() || "";
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  const parsed = JSON.parse(jsonMatch[0]);
+                  mood = parsed.mood || mood;
+                  moodScore = parsed.score || 3;
+                }
+              } catch {
+                mood = userMsgs.length > 0 ? "Recently active in conversation" : mood;
+                moodScore = 3;
+              }
+            } else {
+              const lower = combined.toLowerCase();
+              if (lower.includes("lonely") || lower.includes("sad") || lower.includes("miss")) {
+                mood = "May be feeling lonely today";
+                moodScore = 2;
+              } else if (lower.includes("happy") || lower.includes("great") || lower.includes("wonderful")) {
+                mood = "Appears to be in good spirits";
+                moodScore = 4;
+              } else if (lower.includes("pain") || lower.includes("hurt") || lower.includes("help")) {
+                mood = "Mentioned discomfort - may need attention";
+                moodScore = 2;
+              } else {
+                mood = "Recently active in conversation";
+                moodScore = 3;
+              }
+            }
+          }
+
+          return {
+            residentId: resident.id,
+            name: resident.preferredName || resident.firstName,
+            lastName: resident.lastName,
+            roomNumber: resident.roomNumber,
+            status: resident.status,
+            mood,
+            moodScore,
+            lastActivity: resident.lastActivityAt,
+            messageCount: userMsgs.length,
+          };
+        })
+      );
+
+      res.json(insights);
+    } catch (error) {
+      dailyLogger.error("ai-insights", `Failed to generate insights: ${error}`);
+      res.status(500).json({ error: "Failed to generate AI insights" });
+    }
+  });
+
+  // --- Community Broadcasts ---
+  app.get("/api/entities/:entityId/broadcasts", async (req, res) => {
+    const entityId = Number(req.params.entityId);
+    const broadcasts = await storage.getCommunityBroadcasts(entityId);
+    res.json(broadcasts);
+  });
+
+  app.post("/api/entities/:entityId/broadcasts", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const data = {
+        ...req.body,
+        entityId,
+        senderName: req.body.senderName?.trim() || "Facility Admin",
+        message: req.body.message?.trim() || "",
+      };
+
+      const parsed = insertCommunityBroadcastSchema.safeParse(data);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.flatten() });
+      }
+
+      if (parsed.data.message.length === 0) {
+        return res.status(400).json({ error: "A non-empty 'message' is required" });
+      }
+
+      const broadcast = await storage.createCommunityBroadcast(parsed.data);
+
+      const residentsList = await storage.getResidents(entityId);
+      for (const resident of residentsList) {
+        if (!resident.isActive) continue;
+
+        let conv = await storage.getActiveConversationForResident(entityId, resident.id);
+        if (!conv) {
+          conv = await storage.createConversation({
+            entityId,
+            residentId: resident.id,
+            title: `Companion Chat with ${resident.preferredName || resident.firstName}`,
+            isActive: true,
+          });
+        }
+
+        const name = resident.preferredName || resident.firstName;
+        const announcementMsg = `Hey ${name}, here's an announcement from the facility: "${parsed.data.message}" - Enjoy your day!`;
+
+        await storage.createMessage({
+          conversationId: conv.id,
+          role: "assistant",
+          content: announcementMsg,
+        });
+      }
+
+      broadcastToClients({ type: "community_broadcast", data: broadcast });
+
+      dailyLogger.info("broadcast", `Community broadcast sent to ${residentsList.length} residents`, { entityId });
+      res.status(201).json(broadcast);
+    } catch (error: any) {
+      log(`Broadcast error: ${error?.stack || error}`, "broadcast");
+      dailyLogger.error("broadcast", `Failed to send broadcast: ${error}`);
+      res.status(500).json({ error: "Failed to send community broadcast" });
     }
   });
 
