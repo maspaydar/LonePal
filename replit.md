@@ -4,6 +4,19 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-13**: Phase 6 Deployment & Simulation
+  - scripts/onboard.js: Automated facility setup with resident, sensors, and test intake interview
+  - scripts/simulateMotion.js: ADT motion simulator with 4 modes (normal, inactivity, burst, stop)
+  - README.md: Full guide covering Admin Dashboard, Mobile Companion App, API reference, and architecture
+  - mobilePin stripped from dashboard API responses for security
+- **2026-02-13**: Phase 5.5 Mobile Companion Frontend
+  - Mobile login page at /companion with large-text PIN entry for senior accessibility
+  - Full-screen companion chat at /companion/chat with personalized AI conversation
+  - EchoPath safety status badge (green=secure, amber=monitoring, red=alert)
+  - Proactive check-in popup when inactivity is detected via WebSocket
+  - Community announcements panel with unseen counter badge
+  - Mobile auth context with 30-day token persistence in localStorage
+  - Separate layout (no sidebar) for /companion/* routes
 - **2026-02-13**: Phase 5 Mobile API Gateway
   - Mobile Sync: GET /api/mobile/sync/:entityId/:userId returns last AI message, safety status, community announcements
   - CORS: Express configured with origin: true, credentials, mobile-friendly headers (Expo/React Native compatible)
@@ -48,7 +61,13 @@ Multi-tenant AI-powered safety monitoring system for senior living facilities. I
 - `server/middleware/tenant-resolver.ts` - Multi-tenant header middleware
 - `server/middleware/mobile-auth.ts` - JWT-based mobile auth middleware with token binding
 - `client/src/pages/dashboard.tsx` - Main Nexus Dashboard
+- `client/src/pages/mobile-login.tsx` - Senior companion login page
+- `client/src/pages/mobile-companion.tsx` - Full-screen companion chat
+- `client/src/lib/mobile-auth.tsx` - Mobile auth context/provider
 - `client/src/components/app-sidebar.tsx` - Navigation sidebar
+- `scripts/onboard.js` - Facility onboarding automation
+- `scripts/simulateMotion.js` - ADT motion sensor simulator
+- `README.md` - System documentation and guide
 
 ## User Preferences
 - API key-based Gemini integration (not managed AI Integrations)
