@@ -68,9 +68,6 @@ Multi-tenant AI-powered safety monitoring system for senior living facilities. I
 - `server/middleware/tenant-resolver.ts` - Multi-tenant header middleware
 - `server/middleware/mobile-auth.ts` - JWT-based mobile auth middleware with token binding
 - `client/src/pages/dashboard.tsx` - Main Nexus Dashboard
-- `client/src/pages/mobile-login.tsx` - Senior companion login page
-- `client/src/pages/mobile-companion.tsx` - Full-screen companion chat
-- `client/src/lib/mobile-auth.tsx` - Mobile auth context/provider
 - `client/src/components/app-sidebar.tsx` - Navigation sidebar
 - `scripts/onboard.js` - Facility onboarding automation
 - `scripts/simulateMotion.js` - ADT motion sensor simulator

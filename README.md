@@ -32,25 +32,7 @@ The dashboard shows:
 - **Community Broadcasts** to send announcements through AI companions
 - **Alerts Panel** with active scenario tracking
 
-### 4. Open the Mobile Companion App
-
-Navigate to `/companion` in any mobile browser:
-
-```
-https://<your-replit-url>/companion
-```
-
-**Login credentials:**
-- **Username:** The resident's anonymous username (e.g., `Resident_4984`)
-- **PIN:** Any 4-6 digit number on first login (this becomes the permanent PIN)
-
-The companion app features:
-- Full-screen chat with personalized AI companion
-- Safety status badge (green = secure, amber = monitoring, red = alert)
-- Community announcements panel
-- Proactive check-in alerts when inactivity is detected
-
-### 5. Expo Mobile App (React Native)
+### 4. Expo Mobile App (React Native)
 
 A standalone Expo React Native app lives in the `mobile/` directory. To run it on your phone:
 
@@ -155,27 +137,15 @@ Or run the inactivity simulation directly:
 node scripts/simulateMotion.js <entityId> <residentId> inactivity
 ```
 
-### Step 5: Test the Companion App
+### Step 5: Test the Mobile App
 
-1. Open `/companion` on your phone or in a mobile browser
-2. Login with the resident's anonymous username and a 4-digit PIN
-3. Chat with the AI companion (it uses the Digital Twin persona from the intake interview)
-4. Watch for check-in alerts if inactivity is detected
+The resident-facing companion app is a standalone Expo React Native app in the `mobile/` directory. See `mobile/README.md` for setup instructions to run it on your phone via Expo Go.
 
----
-
-## Mobile App Connection
-
-The Companion App is served from the same URL as the dashboard. For mobile access:
-
-1. Open your Replit project URL with `/companion` appended
-2. On a phone, add the page to your home screen for an app-like experience
-3. The app uses JWT tokens stored in the browser, so the senior stays logged in for 30 days
-
-**For React Native / Expo integration:**
-- Point API calls to `https://<your-replit-url>/api/mobile/*`
-- Use `POST /api/mobile/login` for authentication
-- Use `GET /api/mobile/sync/:entityId/:userId` with Bearer token for data sync
+**Mobile API endpoints available:**
+- `POST /api/mobile/login` for PIN-based authentication
+- `GET /api/mobile/sync/:entityId/:userId` with Bearer token for data sync
+- `POST /api/mobile/respond` for AI companion chat
+- `POST /api/mobile/conversation` for creating conversations
 - CORS is configured to accept requests from any origin
 
 ---
@@ -232,10 +202,11 @@ The Companion App is served from the same URL as the dashboard. For mobile acces
 ## Architecture
 
 ```
-Client (React + Vite)
+Client (React + Vite) - Admin Dashboard Only
   /                  -> Admin Dashboard (sidebar layout)
-  /companion         -> Mobile Login (no sidebar)
-  /companion/chat    -> Companion Chat (full-screen)
+
+Mobile (Expo React Native) - Resident Companion App
+  Standalone app in mobile/ directory
 
 Server (Express + WebSocket)
   /api/*             -> REST API endpoints
