@@ -4,6 +4,11 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-13**: Phase 2 Entity & User Management API
+  - registryService layer for creating entities and managing residents
+  - Privacy-first anonymous username generation (e.g. "Resident_7701") persisted in DB
+  - Admin endpoints: POST /api/admin/entities, POST/GET /api/admin/:entityId/users
+  - Zod validation in registry service for consistent data integrity
 - **2026-02-13**: Phase 1 Multi-Tenant Infrastructure implemented
   - Tenant data folder provisioning at `/data/entities/[entityID]/{profiles,conversations,activity}`
   - `tenantResolver` middleware extracts `x-entity-id` header for data isolation
