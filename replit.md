@@ -4,6 +4,13 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-13**: Expo React Native Mobile App
+  - Standalone Expo project in mobile/ directory with expo-router, expo-secure-store
+  - PIN login, AI companion chat, safety status, check-in alerts, announcements screens
+  - API client connects to /api/mobile/* endpoints with JWT token management via SecureStore
+  - Server URL persisted in SecureStore for cross-session use
+  - POST /api/conversations endpoint added for mobile conversation creation
+  - mobile/README.md with Expo Go preview instructions
 - **2026-02-13**: Phase 6 Deployment & Simulation
   - scripts/onboard.js: Automated facility setup with resident, sensors, and test intake interview
   - scripts/simulateMotion.js: ADT motion simulator with 4 modes (normal, inactivity, burst, stop)

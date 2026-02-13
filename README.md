@@ -50,6 +50,30 @@ The companion app features:
 - Community announcements panel
 - Proactive check-in alerts when inactivity is detected
 
+### 5. Expo Mobile App (React Native)
+
+A standalone Expo React Native app lives in the `mobile/` directory. To run it on your phone:
+
+1. **On your local computer**, copy or clone the `mobile/` folder
+2. Install dependencies:
+   ```bash
+   cd mobile
+   npm install
+   ```
+3. Start the Expo development server:
+   ```bash
+   npx expo start
+   ```
+   Or use tunnel mode for cross-network access:
+   ```bash
+   npx expo start --tunnel
+   ```
+4. Scan the QR code with your phone (Expo Go must be installed)
+5. On the login screen, tap **Server Settings** and enter your Replit app's published URL
+6. Log in with your resident username, PIN, and facility ID
+
+See `mobile/README.md` for full details.
+
 ---
 
 ## Simulation Scripts

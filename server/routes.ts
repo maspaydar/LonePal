@@ -888,6 +888,33 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/mobile/conversation", mobileAuthMiddleware, async (req, res) => {
+    try {
+      const { residentId, entityId } = req.mobileAuth!;
+      const resident = await storage.getResident(residentId);
+      if (!resident || resident.entityId !== entityId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const existing = await storage.getConversations(residentId);
+      const activeConv = existing.find(c => c.isActive && !c.scenarioId);
+      if (activeConv) {
+        return res.json(activeConv);
+      }
+
+      const conversation = await storage.createConversation({
+        entityId,
+        residentId,
+        title: `Companion Chat - ${new Date().toLocaleString()}`,
+        isActive: true,
+      });
+      res.json(conversation);
+    } catch (error) {
+      log(`Mobile create conversation error: ${error}`, "mobile");
+      res.status(500).json({ error: "Failed to create conversation" });
+    }
+  });
+
   // --- Seed demo data ---
   app.post("/api/seed", async (req, res) => {
     let allEntities = await storage.getEntities();
