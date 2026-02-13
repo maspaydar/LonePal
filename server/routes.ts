@@ -7,6 +7,7 @@ import { insertEntitySchema, insertResidentSchema, insertSensorSchema, insertSce
 import { log } from "./index";
 import { provisionEntityFolder } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
+import { registryService } from "./services/registry-service";
 
 let wss: WebSocketServer;
 
@@ -396,6 +397,52 @@ export async function registerRoutes(
       alerts: alertsList,
       scenarios: activeScens,
     });
+  });
+
+  // --- Admin: Entity & User Management ---
+  app.post("/api/admin/entities", async (req, res) => {
+    try {
+      const { name, type, address, contactPhone, contactEmail } = req.body;
+      if (!name) return res.status(400).json({ error: "Entity name is required" });
+      const entity = await registryService.createEntity({ name, type, address, contactPhone, contactEmail });
+      res.status(201).json(entity);
+    } catch (error) {
+      dailyLogger.error("admin", `Failed to create entity: ${error}`);
+      res.status(500).json({ error: "Failed to create entity" });
+    }
+  });
+
+  app.post("/api/admin/:entityId/users", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const { firstName, lastName, dateOfBirth, roomNumber, emergencyContact, emergencyPhone, medicalNotes, preferredName, communicationStyle, intakeInterviewData, digitalTwinPersona } = req.body;
+      if (!firstName || !lastName) return res.status(400).json({ error: "firstName and lastName are required" });
+      const user = await registryService.addUser(entityId, {
+        firstName, lastName, dateOfBirth, roomNumber, emergencyContact, emergencyPhone,
+        medicalNotes, preferredName, communicationStyle, intakeInterviewData, digitalTwinPersona,
+      });
+      res.status(201).json(user);
+    } catch (error: any) {
+      if (error.message?.includes("not found")) {
+        return res.status(404).json({ error: error.message });
+      }
+      dailyLogger.error("admin", `Failed to add user: ${error}`);
+      res.status(500).json({ error: "Failed to add user" });
+    }
+  });
+
+  app.get("/api/admin/:entityId/users", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const users = await registryService.listUsers(entityId);
+      res.json(users);
+    } catch (error: any) {
+      if (error.message?.includes("not found")) {
+        return res.status(404).json({ error: error.message });
+      }
+      dailyLogger.error("admin", `Failed to list users: ${error}`);
+      res.status(500).json({ error: "Failed to list users" });
+    }
   });
 
   // --- Seed demo data ---

@@ -23,6 +23,7 @@ function isExemptPath(path: string, method: string): boolean {
   if (path === "/api/entities" && method === "POST") return true;
   if (path === "/api/seed") return true;
   if (path === "/api/webhook/adt") return true;
+  if (path.startsWith("/api/admin")) return true;
   return false;
 }
 

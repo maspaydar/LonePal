@@ -28,6 +28,7 @@ export const entities = pgTable("entities", {
 export const residents = pgTable("residents", {
   id: serial("id").primaryKey(),
   entityId: integer("entity_id").notNull(),
+  anonymousUsername: text("anonymous_username"),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   dateOfBirth: text("date_of_birth"),
