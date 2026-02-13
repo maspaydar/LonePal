@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from "ws";
 import { generateAICheckIn, processResidentResponse } from "./ai-engine";
-import { insertEntitySchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema } from "@shared/schema";
+import { insertEntitySchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema, mobileLoginSchema } from "@shared/schema";
 import { log } from "./index";
 import { provisionEntityFolder } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
@@ -14,6 +14,8 @@ import { motionService } from "./services/motion-service";
 import { inactivityMonitor } from "./services/inactivity-monitor";
 import { emergencyService } from "./services/emergency-service";
 import { GoogleGenAI } from "@google/genai";
+import bcrypt from "bcryptjs";
+import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth";
 
 let wss: WebSocketServer;
 let _insightsAI: GoogleGenAI | null = null;
@@ -733,6 +735,156 @@ export async function registerRoutes(
       log(`Broadcast error: ${error?.stack || error}`, "broadcast");
       dailyLogger.error("broadcast", `Failed to send broadcast: ${error}`);
       res.status(500).json({ error: "Failed to send community broadcast" });
+    }
+  });
+
+  // ===================== MOBILE API GATEWAY =====================
+
+  app.post("/api/mobile/login", async (req, res) => {
+    try {
+      const parsed = mobileLoginSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid login data", details: parsed.error.flatten() });
+      }
+
+      const { anonymousUsername, pin, entityId } = parsed.data;
+
+      const resident = await storage.getResidentByAnonymousUsername(entityId, anonymousUsername);
+      if (!resident) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      if (!resident.mobilePin) {
+        const hashedPin = await bcrypt.hash(pin, 10);
+        await storage.updateResident(resident.id, { mobilePin: hashedPin } as any);
+      } else {
+        const pinValid = await bcrypt.compare(pin, resident.mobilePin);
+        if (!pinValid) {
+          return res.status(401).json({ error: "Invalid credentials" });
+        }
+      }
+
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      const placeholderToken = `pending-${Date.now()}`;
+      const dbToken = await storage.createMobileToken({
+        residentId: resident.id,
+        entityId,
+        token: placeholderToken,
+        isActive: true,
+        expiresAt,
+      });
+
+      const tokenPayload = { residentId: resident.id, entityId, tokenId: dbToken.id };
+      const jwtToken = signMobileToken(tokenPayload, "30d");
+
+      await storage.updateMobileTokenValue(dbToken.id, jwtToken);
+
+      log(`Mobile login: ${resident.anonymousUsername} (entity ${entityId})`, "mobile");
+      dailyLogger.info("mobile", `Resident ${resident.anonymousUsername} logged in via mobile`, { entityId });
+
+      res.json({
+        token: jwtToken,
+        expiresAt: expiresAt.toISOString(),
+        resident: {
+          id: resident.id,
+          anonymousUsername: resident.anonymousUsername,
+          preferredName: resident.preferredName || resident.firstName,
+          entityId: resident.entityId,
+          status: resident.status,
+        },
+      });
+    } catch (error: any) {
+      log(`Mobile login error: ${error?.stack || error}`, "mobile");
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  app.post("/api/mobile/logout", mobileAuthMiddleware, async (req, res) => {
+    try {
+      const token = req.headers.authorization!.slice(7);
+      const dbToken = await storage.getMobileTokenByToken(token);
+      if (dbToken) {
+        await storage.deactivateMobileToken(dbToken.id);
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: "Logout failed" });
+    }
+  });
+
+  app.get("/api/mobile/sync/:entityId/:userId", mobileAuthMiddleware, async (req, res) => {
+    try {
+      const entityId = parseInt(req.params.entityId);
+      const userId = parseInt(req.params.userId);
+
+      if (req.mobileAuth!.residentId !== userId || req.mobileAuth!.entityId !== entityId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const resident = await storage.getResident(userId);
+      if (!resident || resident.entityId !== entityId) {
+        return res.status(404).json({ error: "Resident not found" });
+      }
+
+      const recentMessages = await storage.getLatestConversationMessages(userId, 1);
+      const lastAIMessage = recentMessages.find(m => m.role === "assistant") || null;
+
+      const broadcasts = await storage.getCommunityBroadcasts(entityId, 5);
+
+      const activeScenarios = await storage.getActiveScenariosForResident(userId);
+
+      res.json({
+        syncedAt: new Date().toISOString(),
+        resident: {
+          id: resident.id,
+          anonymousUsername: resident.anonymousUsername,
+          preferredName: resident.preferredName || resident.firstName,
+          status: resident.status,
+          lastActivityAt: resident.lastActivityAt,
+        },
+        lastAIMessage: lastAIMessage ? {
+          id: lastAIMessage.id,
+          content: lastAIMessage.content,
+          createdAt: lastAIMessage.createdAt,
+        } : null,
+        safetyStatus: {
+          current: resident.status,
+          activeScenarios: activeScenarios.length,
+          hasActiveAlert: activeScenarios.some(s => s.status === "active" || s.status === "escalated"),
+        },
+        announcements: broadcasts.map(b => ({
+          id: b.id,
+          senderName: b.senderName,
+          message: b.message,
+          createdAt: b.createdAt,
+        })),
+      });
+    } catch (error: any) {
+      log(`Mobile sync error: ${error?.stack || error}`, "mobile");
+      res.status(500).json({ error: "Sync failed" });
+    }
+  });
+
+  app.get("/api/mobile/profile", mobileAuthMiddleware, async (req, res) => {
+    try {
+      const { residentId, entityId } = req.mobileAuth!;
+      const resident = await storage.getResident(residentId);
+      if (!resident) {
+        return res.status(404).json({ error: "Resident not found" });
+      }
+
+      res.json({
+        id: resident.id,
+        anonymousUsername: resident.anonymousUsername,
+        preferredName: resident.preferredName || resident.firstName,
+        roomNumber: resident.roomNumber,
+        status: resident.status,
+        entityId: resident.entityId,
+        lastActivityAt: resident.lastActivityAt,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to load profile" });
     }
   });
 

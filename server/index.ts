@@ -19,7 +19,13 @@ declare module "http" {
 ensureDataRoot();
 dailyLogger.init();
 
-app.use(cors());
+app.use(cors({
+  origin: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  credentials: true,
+  maxAge: 86400,
+}));
 
 app.use(
   express.json({

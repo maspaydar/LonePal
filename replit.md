@@ -4,6 +4,14 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-13**: Phase 5 Mobile API Gateway
+  - Mobile Sync: GET /api/mobile/sync/:entityId/:userId returns last AI message, safety status, community announcements
+  - CORS: Express configured with origin: true, credentials, mobile-friendly headers (Expo/React Native compatible)
+  - Auth: JWT-based token login via POST /api/mobile/login with PIN-based auth (bcrypt hashed)
+  - Token lifecycle: 30-day expiry, DB-backed revocation via POST /api/mobile/logout, tokenId binding in JWT claims
+  - Profile endpoint: GET /api/mobile/profile for authenticated resident profile data
+  - mobile_tokens table and mobilePin column on residents added to schema
+  - Auth middleware validates JWT signature, DB token existence, tokenId binding, and expiry
 - **2026-02-13**: Phase 4 Facility Admin Dashboard UI
   - Enhanced Nexus Dashboard with resident monitoring grid (status lights: Green/Active, Red/Alert)
   - AI Insights panel: Gemini-powered mood analysis from last conversations per resident
@@ -38,6 +46,7 @@ Multi-tenant AI-powered safety monitoring system for senior living facilities. I
 - `server/tenant-folders.ts` - File-based tenant data folder management
 - `server/daily-logger.ts` - Daily rotating JSON log file utility
 - `server/middleware/tenant-resolver.ts` - Multi-tenant header middleware
+- `server/middleware/mobile-auth.ts` - JWT-based mobile auth middleware with token binding
 - `client/src/pages/dashboard.tsx` - Main Nexus Dashboard
 - `client/src/components/app-sidebar.tsx` - Navigation sidebar
 

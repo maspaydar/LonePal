@@ -10,9 +10,10 @@ import {
   type Conversation, type InsertConversation,
   type Message, type InsertMessage,
   type CommunityBroadcast, type InsertCommunityBroadcast,
+  type MobileToken, type InsertMobileToken,
   users, entities, residents, sensors, motionEvents,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
-  communityBroadcasts,
+  communityBroadcasts, mobileTokens,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
@@ -74,6 +75,13 @@ export interface IStorage {
   createCommunityBroadcast(broadcast: InsertCommunityBroadcast): Promise<CommunityBroadcast>;
 
   getLatestConversationMessages(residentId: number, limit?: number): Promise<Message[]>;
+
+  getResidentByAnonymousUsername(entityId: number, username: string): Promise<Resident | undefined>;
+  createMobileToken(token: InsertMobileToken): Promise<MobileToken>;
+  getMobileTokenByToken(token: string): Promise<MobileToken | undefined>;
+  updateMobileTokenLastUsed(id: number): Promise<void>;
+  updateMobileTokenValue(id: number, token: string): Promise<void>;
+  deactivateMobileToken(id: number): Promise<void>;
 
   seedDemoData(entityId: number): Promise<void>;
 }
@@ -404,6 +412,35 @@ export class DatabaseStorage implements IStorage {
       .where(eq(messages.conversationId, latestConv[0].id))
       .orderBy(desc(messages.createdAt))
       .limit(limit);
+  }
+
+  async getResidentByAnonymousUsername(entityId: number, username: string): Promise<Resident | undefined> {
+    const [resident] = await db.select().from(residents)
+      .where(and(eq(residents.entityId, entityId), eq(residents.anonymousUsername, username)));
+    return resident;
+  }
+
+  async createMobileToken(token: InsertMobileToken): Promise<MobileToken> {
+    const [created] = await db.insert(mobileTokens).values(token).returning();
+    return created;
+  }
+
+  async getMobileTokenByToken(token: string): Promise<MobileToken | undefined> {
+    const [found] = await db.select().from(mobileTokens)
+      .where(and(eq(mobileTokens.token, token), eq(mobileTokens.isActive, true)));
+    return found;
+  }
+
+  async updateMobileTokenLastUsed(id: number): Promise<void> {
+    await db.update(mobileTokens).set({ lastUsedAt: new Date() }).where(eq(mobileTokens.id, id));
+  }
+
+  async updateMobileTokenValue(id: number, token: string): Promise<void> {
+    await db.update(mobileTokens).set({ token }).where(eq(mobileTokens.id, id));
+  }
+
+  async deactivateMobileToken(id: number): Promise<void> {
+    await db.update(mobileTokens).set({ isActive: false }).where(eq(mobileTokens.id, id));
   }
 }
 

@@ -40,6 +40,7 @@ export const residents = pgTable("residents", {
   digitalTwinPersona: jsonb("digital_twin_persona"),
   preferredName: text("preferred_name"),
   communicationStyle: text("communication_style"),
+  mobilePin: text("mobile_pin"),
   isActive: boolean("is_active").notNull().default(true),
   lastActivityAt: timestamp("last_activity_at"),
   status: text("status").notNull().default("safe"),
@@ -151,8 +152,26 @@ export const communityBroadcasts = pgTable("community_broadcasts", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const mobileTokens = pgTable("mobile_tokens", {
+  id: serial("id").primaryKey(),
+  residentId: integer("resident_id").notNull(),
+  entityId: integer("entity_id").notNull(),
+  token: text("token").notNull().unique(),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
 export const insertCommunityBroadcastSchema = createInsertSchema(communityBroadcasts).omit({ id: true, createdAt: true });
+export const insertMobileTokenSchema = createInsertSchema(mobileTokens).omit({ id: true, createdAt: true });
+
+export const mobileLoginSchema = z.object({
+  anonymousUsername: z.string().min(1, "Username is required"),
+  pin: z.string().min(4, "PIN must be at least 4 digits").max(6, "PIN must be at most 6 digits").regex(/^\d+$/, "PIN must contain only digits"),
+  entityId: z.coerce.number().int().positive(),
+});
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -176,3 +195,5 @@ export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type CommunityBroadcast = typeof communityBroadcasts.$inferSelect;
 export type InsertCommunityBroadcast = z.infer<typeof insertCommunityBroadcastSchema>;
+export type MobileToken = typeof mobileTokens.$inferSelect;
+export type InsertMobileToken = z.infer<typeof insertMobileTokenSchema>;
