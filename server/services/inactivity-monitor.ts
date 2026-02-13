@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { dailyLogger } from "../daily-logger";
+import { emergencyService } from "./emergency-service";
 
 const CHECK_INTERVAL_MS = 60 * 1000;
 const INACTIVITY_THRESHOLD_MS = 10 * 60 * 1000;
@@ -24,7 +25,7 @@ async function checkAllResidents(): Promise<void> {
 
         const elapsed = Date.now() - new Date(lastActivity).getTime();
 
-        if (elapsed >= INACTIVITY_THRESHOLD_MS && resident.status !== "alert") {
+        if (elapsed >= INACTIVITY_THRESHOLD_MS && resident.status !== "alert" && resident.status !== "checking" && resident.status !== "emergency") {
           dailyLogger.warn("inactivity", `Resident ${resident.id} inactive for ${Math.round(elapsed / 60000)} minutes`, {
             entityId: entity.id,
             residentId: resident.id,
@@ -59,12 +60,31 @@ async function checkAllResidents(): Promise<void> {
             });
           }
 
-          dailyLogger.info("inactivity", `Safety alert ${alert.id} created for resident ${resident.id}`, {
-            entityId: entity.id,
-            alertId: alert.id,
-            severity: alert.severity,
-            minutesInactive,
-          });
+          try {
+            const checkIn = await emergencyService.initiateProactiveCheckIn(
+              entity.id,
+              resident.id,
+              alert,
+              minutesInactive,
+            );
+            await storage.updateResidentStatus(resident.id, "checking");
+
+            dailyLogger.info("inactivity", `Safety alert ${alert.id} created + AI check-in sent for resident ${resident.id}`, {
+              entityId: entity.id,
+              alertId: alert.id,
+              conversationId: checkIn.conversationId,
+              severity: alert.severity,
+              minutesInactive,
+            });
+          } catch (checkInErr) {
+            dailyLogger.error("inactivity", `Failed to send AI check-in for resident ${resident.id}: ${checkInErr}`);
+            dailyLogger.info("inactivity", `Safety alert ${alert.id} created (without AI check-in) for resident ${resident.id}`, {
+              entityId: entity.id,
+              alertId: alert.id,
+              severity: alert.severity,
+              minutesInactive,
+            });
+          }
         }
       }
     }

@@ -3,6 +3,7 @@ import path from "path";
 import { GoogleGenAI } from "@google/genai";
 import { storage } from "../storage";
 import { personaService } from "./persona-service";
+import { emergencyService } from "./emergency-service";
 import { getEntityPath, provisionEntityFolder } from "../tenant-folders";
 import { dailyLogger } from "../daily-logger";
 import type { Conversation, Message } from "@shared/schema";
@@ -103,6 +104,15 @@ export const chatService = {
       role: "user",
       content: userMessage,
     });
+
+    const pendingCheckIns = emergencyService.getPendingCheckIns();
+    for (const pending of pendingCheckIns) {
+      if (pending.residentId === residentId) {
+        emergencyService.clearPendingCheckIn(pending.alertId);
+        await storage.updateResidentStatus(residentId, "safe", new Date());
+        dailyLogger.info("chat", `Cleared pending check-in (alert ${pending.alertId}) for resident ${residentId} due to chat response`);
+      }
+    }
 
     let responseText: string;
     const ai = getAI();

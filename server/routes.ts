@@ -12,6 +12,7 @@ import { intakeService } from "./services/intake-service";
 import { chatService } from "./services/chat-service";
 import { motionService } from "./services/motion-service";
 import { inactivityMonitor } from "./services/inactivity-monitor";
+import { emergencyService } from "./services/emergency-service";
 
 let wss: WebSocketServer;
 
@@ -303,6 +304,14 @@ export async function registerRoutes(
       if (!resident) return res.status(404).json({ error: "Resident not found" });
 
       await storage.createMessage({ conversationId, role: "user", content: message });
+
+      const pendingCheckIns = emergencyService.getPendingCheckIns();
+      for (const pending of pendingCheckIns) {
+        if (pending.residentId === residentId) {
+          emergencyService.clearPendingCheckIn(pending.alertId);
+          dailyLogger.info("mobile-api", `Cleared pending check-in (alert ${pending.alertId}) for resident ${residentId} due to response`);
+        }
+      }
 
       const allMessages = await storage.getMessages(conversationId);
       const history = allMessages.map(m => ({ role: m.role, content: m.content }));
@@ -602,6 +611,7 @@ export async function registerRoutes(
     res.json({ success: true, entityId: entity.id });
   });
 
+  emergencyService.start(broadcastToClients);
   inactivityMonitor.start(broadcastToClients);
 
   return httpServer;

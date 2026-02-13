@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { dailyLogger } from "../daily-logger";
 import { provisionEntityFolder, getEntityPath } from "../tenant-folders";
+import { emergencyService } from "./emergency-service";
 import fs from "fs";
 import path from "path";
 
@@ -86,6 +87,14 @@ export const motionService = {
     });
 
     await storage.updateResidentStatus(residentId, "safe", new Date());
+
+    const pendingCheckIns = emergencyService.getPendingCheckIns();
+    for (const pending of pendingCheckIns) {
+      if (pending.residentId === residentId) {
+        emergencyService.clearPendingCheckIn(pending.alertId);
+        dailyLogger.info("motion", `Cleared pending check-in (alert ${pending.alertId}) for resident ${residentId} due to motion detection`);
+      }
+    }
 
     appendToActivityLog(entityId, residentId, {
       type: "motion_detected",
