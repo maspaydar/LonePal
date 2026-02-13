@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useRoute } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,8 +7,10 @@ import { ThemeProvider } from "@/lib/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { MobileAuthProvider, useMobileAuth } from "@/lib/mobile-auth";
 import { useWebSocket } from "@/lib/websocket";
 import { useCallback } from "react";
+import { Redirect } from "wouter";
 
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
@@ -21,8 +23,10 @@ import Sensors from "@/pages/sensors";
 import ScenarioConfig from "@/pages/scenario-config";
 import SettingsPage from "@/pages/settings";
 import ConversationDetail from "@/pages/conversation-detail";
+import MobileLogin from "@/pages/mobile-login";
+import MobileCompanion from "@/pages/mobile-companion";
 
-function Router() {
+function AdminRouter() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
@@ -38,6 +42,13 @@ function Router() {
       <Route component={NotFound} />
     </Switch>
   );
+}
+
+function MobileAuthGuard() {
+  const { user, token, isLoading } = useMobileAuth();
+  if (isLoading) return null;
+  if (!user || !token) return <Redirect to="/companion" />;
+  return <MobileCompanion />;
 }
 
 function AppLayout() {
@@ -74,7 +85,7 @@ function AppLayout() {
             <ThemeToggle />
           </header>
           <main className="flex-1 overflow-auto">
-            <Router />
+            <AdminRouter />
           </main>
         </div>
       </div>
@@ -83,6 +94,28 @@ function AppLayout() {
 }
 
 function App() {
+  const [isCompanionRoute] = useRoute("/companion/*?");
+  const [isCompanionRoot] = useRoute("/companion");
+
+  if (isCompanionRoute || isCompanionRoot) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <TooltipProvider>
+            <MobileAuthProvider>
+              <Switch>
+                <Route path="/companion" component={MobileLogin} />
+                <Route path="/companion/chat" component={MobileAuthGuard} />
+                <Route>{() => <Redirect to="/companion" />}</Route>
+              </Switch>
+            </MobileAuthProvider>
+            <Toaster />
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>

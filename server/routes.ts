@@ -469,7 +469,7 @@ export async function registerRoutes(
       activeScenarios: activeScens.length,
       totalSensors: sensorsList.length,
       recentEvents: events,
-      residents: residentsList,
+      residents: residentsList.map(({ mobilePin, ...r }) => r),
       alerts: alertsList,
       scenarios: activeScens,
     });
