@@ -5,6 +5,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import { generateAICheckIn, processResidentResponse } from "./ai-engine";
 import { insertEntitySchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema } from "@shared/schema";
 import { log } from "./index";
+import { provisionEntityFolder } from "./tenant-folders";
+import { dailyLogger } from "./daily-logger";
 
 let wss: WebSocketServer;
 
@@ -44,6 +46,8 @@ export async function registerRoutes(
     const parsed = insertEntitySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const entity = await storage.createEntity(parsed.data);
+    provisionEntityFolder(entity.id);
+    dailyLogger.info("entities", `Created entity ${entity.id}: ${entity.name}`, { entityId: entity.id });
     res.status(201).json(entity);
   });
 
@@ -410,7 +414,9 @@ export async function registerRoutes(
       entity = allEntities[0];
     }
 
+    provisionEntityFolder(entity.id);
     await storage.seedDemoData(entity.id);
+    dailyLogger.info("seed", `Demo data seeded for entity ${entity.id}`, { entityId: entity.id });
     res.json({ success: true, entityId: entity.id });
   });
 
