@@ -9,6 +9,7 @@ import { provisionEntityFolder } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
 import { registryService } from "./services/registry-service";
 import { intakeService } from "./services/intake-service";
+import { chatService } from "./services/chat-service";
 
 let wss: WebSocketServer;
 
@@ -443,6 +444,57 @@ export async function registerRoutes(
       }
       dailyLogger.error("admin", `Failed to list users: ${error}`);
       res.status(500).json({ error: "Failed to list users" });
+    }
+  });
+
+  // --- Chat API ---
+  app.post("/api/chat/:entityId/:userId", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const residentId = Number(req.params.userId);
+
+      if (isNaN(entityId) || isNaN(residentId)) {
+        return res.status(400).json({ error: "Invalid entityId or userId" });
+      }
+
+      const { message } = req.body;
+
+      if (!message || typeof message !== "string" || message.trim().length === 0) {
+        return res.status(400).json({ error: "A non-empty 'message' string is required" });
+      }
+
+      const entity = await storage.getEntity(entityId);
+      if (!entity) {
+        return res.status(404).json({ error: `Entity ${entityId} not found` });
+      }
+
+      const result = await chatService.chat(entityId, residentId, message.trim());
+
+      res.json({
+        conversationId: result.conversationId,
+        response: result.response,
+        messageId: result.assistantMessage.id,
+        timestamp: result.assistantMessage.createdAt,
+      });
+    } catch (error: any) {
+      if (error.message?.includes("not found") || error.message?.includes("does not belong")) {
+        return res.status(404).json({ error: error.message });
+      }
+      dailyLogger.error("chat-route", `Chat failed: ${error}`);
+      res.status(500).json({ error: "Failed to process chat message" });
+    }
+  });
+
+  app.get("/api/chat/:entityId/:userId/history", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const residentId = Number(req.params.userId);
+
+      const result = await chatService.getConversationHistory(entityId, residentId);
+      res.json(result);
+    } catch (error) {
+      dailyLogger.error("chat-route", `History fetch failed: ${error}`);
+      res.status(500).json({ error: "Failed to fetch conversation history" });
     }
   });
 

@@ -64,7 +64,9 @@ export interface IStorage {
   createConversation(conv: InsertConversation): Promise<Conversation>;
 
   getMessages(conversationId: number): Promise<Message[]>;
+  getRecentMessages(conversationId: number, limit?: number): Promise<Message[]>;
   createMessage(msg: InsertMessage): Promise<Message>;
+  getActiveConversationForResident(entityId: number, residentId: number): Promise<Conversation | undefined>;
 
   seedDemoData(entityId: number): Promise<void>;
 }
@@ -268,9 +270,30 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(messages.createdAt);
   }
 
+  async getRecentMessages(conversationId: number, limit: number = 20): Promise<Message[]> {
+    const result = await db.select().from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(desc(messages.createdAt))
+      .limit(limit);
+    return result.reverse();
+  }
+
   async createMessage(msg: InsertMessage): Promise<Message> {
     const [created] = await db.insert(messages).values(msg).returning();
     return created;
+  }
+
+  async getActiveConversationForResident(entityId: number, residentId: number): Promise<Conversation | undefined> {
+    const [conv] = await db.select().from(conversations)
+      .where(and(
+        eq(conversations.entityId, entityId),
+        eq(conversations.residentId, residentId),
+        eq(conversations.isActive, true),
+        isNull(conversations.scenarioId),
+      ))
+      .orderBy(desc(conversations.createdAt))
+      .limit(1);
+    return conv;
   }
 
   async seedDemoData(entityId: number): Promise<void> {

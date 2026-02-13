@@ -1,0 +1,34 @@
+{
+  "conversationId": 1,
+  "residentId": 1,
+  "entityId": 1,
+  "lastUpdated": "2026-02-13T19:02:04.328Z",
+  "messageCount": 5,
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Hello Maggie, I noticed you've been resting for a bit. How are you feeling? Would you like to have a chat?",
+      "timestamp": "2026-02-13T18:26:55.340Z"
+    },
+    {
+      "role": "user",
+      "content": "Hello Maggie, how are you doing today?",
+      "timestamp": "2026-02-13T19:01:55.710Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello Maggie! It's so good to hear from you. How are you doing today?",
+      "timestamp": "2026-02-13T19:01:55.752Z"
+    },
+    {
+      "role": "user",
+      "content": "I was thinking about my garden today. The roses are really blooming nicely.",
+      "timestamp": "2026-02-13T19:02:04.320Z"
+    },
+    {
+      "role": "assistant",
+      "content": "That's really interesting, Maggie. I'd love to hear more about that. What else is on your mind today?",
+      "timestamp": "2026-02-13T19:02:04.324Z"
+    }
+  ]
+}
