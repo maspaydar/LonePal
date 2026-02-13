@@ -26,6 +26,7 @@ function isExemptPath(path: string, method: string): boolean {
   if (path.startsWith("/api/admin")) return true;
   if (path.startsWith("/api/test")) return true;
   if (path.startsWith("/api/chat")) return true;
+  if (path.startsWith("/api/safety")) return true;
   return false;
 }
 

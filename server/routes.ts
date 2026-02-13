@@ -10,6 +10,8 @@ import { dailyLogger } from "./daily-logger";
 import { registryService } from "./services/registry-service";
 import { intakeService } from "./services/intake-service";
 import { chatService } from "./services/chat-service";
+import { motionService } from "./services/motion-service";
+import { inactivityMonitor } from "./services/inactivity-monitor";
 
 let wss: WebSocketServer;
 
@@ -156,6 +158,57 @@ export async function registerRoutes(
       res.json({ received: true, eventId: motionEvent.id });
     } catch (error) {
       log(`Webhook error: ${error}`, "webhook");
+      res.status(500).json({ error: "Webhook processing failed" });
+    }
+  });
+
+  // --- Safety ADT Webhook (per-entity, per-resident with HMAC) ---
+  app.post("/api/safety/adt-webhook/:entityId/:userId", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const residentId = Number(req.params.userId);
+
+      if (isNaN(entityId) || isNaN(residentId)) {
+        return res.status(400).json({ error: "Invalid entityId or userId" });
+      }
+
+      const rawBody = (req as any).rawBody;
+      const signature = req.headers["x-adt-signature"] as string | undefined;
+
+      if (!motionService.verifySignature(rawBody?.toString() || JSON.stringify(req.body), signature)) {
+        dailyLogger.warn("safety-webhook", `HMAC verification failed for entity=${entityId} resident=${residentId}`, {
+          hasSignature: !!signature,
+        });
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+
+      const { deviceId, eventType } = req.body;
+      if (!eventType) {
+        return res.status(400).json({ error: "Missing eventType in payload" });
+      }
+
+      const entity = await storage.getEntity(entityId);
+      if (!entity) {
+        return res.status(404).json({ error: `Entity ${entityId} not found` });
+      }
+
+      const motionEvent = await motionService.processMotionEvent(entityId, residentId, {
+        deviceId: deviceId || "unknown",
+        eventType,
+        ...req.body,
+      });
+
+      broadcastToClients({
+        type: "motion_event",
+        data: motionEvent,
+      });
+
+      res.json({ received: true, eventId: motionEvent.id });
+    } catch (error: any) {
+      if (error.message?.includes("not found") || error.message?.includes("does not belong")) {
+        return res.status(404).json({ error: error.message });
+      }
+      dailyLogger.error("safety-webhook", `Safety webhook failed: ${error}`);
       res.status(500).json({ error: "Webhook processing failed" });
     }
   });
@@ -548,6 +601,8 @@ export async function registerRoutes(
     dailyLogger.info("seed", `Demo data seeded for entity ${entity.id}`, { entityId: entity.id });
     res.json({ success: true, entityId: entity.id });
   });
+
+  inactivityMonitor.start(broadcastToClients);
 
   return httpServer;
 }
