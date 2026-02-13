@@ -1,0 +1,67 @@
+{
+  "residentId": 1,
+  "entityId": 1,
+  "generatedAt": "2026-02-13T18:57:02.526Z",
+  "biography": {
+    "lifeMilestones": [
+      {
+        "event": "Details to be extracted from full AI processing",
+        "approximateYear": "N/A",
+        "emotionalSignificance": "Pending AI analysis"
+      }
+    ],
+    "formerProfession": {
+      "title": "Not yet processed",
+      "industry": "Pending",
+      "yearsActive": "Pending",
+      "keySkills": [
+        "To be determined"
+      ],
+      "proudestAchievement": "Pending AI analysis"
+    },
+    "communicationDNA": {
+      "preferredTone": "warm",
+      "vocabularyLevel": "moderate",
+      "conversationPace": "moderate",
+      "humorStyle": "gentle",
+      "topicsTheyInitiate": [
+        "general conversation"
+      ],
+      "phrasesTheyUse": [],
+      "communicationWarnings": [
+        "Transcript processed without AI - review required"
+      ]
+    },
+    "nostalgicTriggers": [],
+    "personalitySnapshot": {
+      "socialStyle": "ambivert",
+      "decisionMakingStyle": "thoughtful",
+      "stressResponse": "seeks reassurance",
+      "motivators": [
+        "connection",
+        "comfort"
+      ],
+      "values": [
+        "family",
+        "independence"
+      ]
+    },
+    "interactionGuidelines": {
+      "greetingStyle": "Hello Margaret, how are you today?",
+      "topicsToAvoid": [],
+      "topicsToEncourage": [
+        "daily activities",
+        "memories"
+      ],
+      "escalationCues": [
+        "silence",
+        "confusion",
+        "distress"
+      ],
+      "comfortPhrases": [
+        "You're doing great",
+        "Take your time"
+      ]
+    }
+  }
+}

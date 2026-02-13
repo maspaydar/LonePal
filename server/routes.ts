@@ -8,6 +8,7 @@ import { log } from "./index";
 import { provisionEntityFolder } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
 import { registryService } from "./services/registry-service";
+import { intakeService } from "./services/intake-service";
 
 let wss: WebSocketServer;
 
@@ -442,6 +443,35 @@ export async function registerRoutes(
       }
       dailyLogger.error("admin", `Failed to list users: ${error}`);
       res.status(500).json({ error: "Failed to list users" });
+    }
+  });
+
+  // --- Test: Intake Interview Processing ---
+  app.post("/api/test/ingest", async (req, res) => {
+    try {
+      const { transcript, entityId, residentId } = req.body;
+      if (!transcript || typeof transcript !== "string") {
+        return res.status(400).json({ error: "A 'transcript' string is required" });
+      }
+      if (transcript.length < 50) {
+        return res.status(400).json({ error: "Transcript must be at least 50 characters for meaningful analysis" });
+      }
+
+      const biography = await intakeService.buildDigitalTwin(
+        transcript,
+        entityId ? Number(entityId) : undefined,
+        residentId ? Number(residentId) : undefined,
+      );
+
+      res.json({
+        success: true,
+        biography,
+        persistedToEntity: entityId ? Number(entityId) : null,
+        linkedToResident: residentId ? Number(residentId) : null,
+      });
+    } catch (error) {
+      dailyLogger.error("test-ingest", `Intake processing failed: ${error}`);
+      res.status(500).json({ error: "Failed to process intake transcript" });
     }
   });
 
