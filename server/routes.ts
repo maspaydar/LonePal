@@ -18,7 +18,9 @@ import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth";
 import superAdminRouter from "./routes/super-admin";
 import maintenanceRouter from "./routes/maintenance";
+import esp32Router from "./routes/esp32";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
+import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices } from "./services/esp32-speaker";
 import { initLogStreamer, streamInfo } from "./services/log-streamer";
 import { insertUserPreferencesSchema, insertDevicePairingCodeSchema } from "@shared/schema";
 import crypto from "crypto";
@@ -66,8 +68,22 @@ export async function registerRoutes(
     ws.on("close", () => log("WebSocket client disconnected", "ws"));
   });
 
+  const esp32Wss = new WebSocketServer({ server: httpServer, path: "/ws/esp32" });
+  esp32Wss.on("connection", (ws, req) => {
+    const url = new URL(req.url || "", `http://${req.headers.host}`);
+    const deviceMac = url.searchParams.get("mac");
+    if (deviceMac) {
+      registerEsp32Device(deviceMac, ws);
+      log(`ESP32 WebSocket connected: ${deviceMac}`, "esp32-ws");
+    } else {
+      log("ESP32 WebSocket connected without MAC address", "esp32-ws");
+      ws.close(1008, "Missing mac parameter");
+    }
+  });
+
   app.use("/api/super-admin", superAdminRouter);
   app.use("/api/maintenance", maintenanceRouter);
+  app.use("/api/esp32", esp32Router);
 
   app.get("/api/health", async (_req, res) => {
     try {
@@ -102,24 +118,37 @@ export async function registerRoutes(
           const unitSensors = await storage.getSensorsByUnit(unit.id);
           const resident = await storage.getResidentByUnit(unit.id);
           const speakerHealth = unit.smartSpeakerId ? getSpeakerHealth(unit.smartSpeakerId) : null;
+          const esp32Health = unit.esp32DeviceMac ? getEsp32Health(unit.esp32DeviceMac) : null;
 
           unitStatuses.push({
             unitId: unit.id,
             unitIdentifier: unit.unitIdentifier,
             floor: unit.floor,
             label: unit.label,
+            hardwareType: unit.hardwareType,
             residentAssigned: !!resident,
             residentName: resident ? `${resident.firstName} ${resident.lastName}` : null,
             residentStatus: resident?.status || null,
-            smartSpeaker: {
+            smartSpeaker: unit.hardwareType === "adt_google" ? {
               id: unit.smartSpeakerId || null,
               healthy: speakerHealth?.healthy ?? null,
               consecutiveFailures: speakerHealth?.consecutiveFailures ?? 0,
-            },
+            } : null,
+            esp32Device: unit.hardwareType === "esp32_custom" ? {
+              deviceMac: unit.esp32DeviceMac || null,
+              firmwareVersion: unit.esp32FirmwareVersion || null,
+              lastHeartbeat: unit.esp32LastHeartbeat || null,
+              ipAddress: unit.esp32IpAddress || null,
+              signalStrength: unit.esp32SignalStrength || null,
+              connected: esp32Health?.connected ?? false,
+              healthy: esp32Health?.healthy ?? false,
+            } : null,
             motionSensors: unitSensors.map(s => ({
               id: s.id,
               location: s.location,
               adtDeviceId: s.adtDeviceId,
+              esp32DeviceMac: s.esp32DeviceMac,
+              sensorType: s.sensorType,
               isActive: s.isActive,
             })),
             sensorsActive: unitSensors.filter(s => s.isActive).length,
@@ -779,8 +808,10 @@ export async function registerRoutes(
 
   app.put("/api/entities/:entityId/units/:unitId", async (req, res) => {
     try {
-      const { unitIdentifier, label, smartSpeakerId, floor, isActive } = req.body;
-      const updated = await storage.updateUnit(Number(req.params.unitId), { unitIdentifier, label, smartSpeakerId, floor, isActive });
+      const { unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac } = req.body;
+      const updated = await storage.updateUnit(Number(req.params.unitId), {
+        unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac,
+      });
       if (!updated) return res.status(404).json({ error: "Unit not found" });
       res.json(updated);
     } catch (error) {

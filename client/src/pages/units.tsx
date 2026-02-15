@@ -35,6 +35,10 @@ import {
   Copy,
   Clock,
   Mic,
+  Cpu,
+  Wifi,
+  Signal,
+  Activity,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
@@ -47,6 +51,7 @@ interface UnitSensor {
   sensorType: string;
   location: string;
   adtDeviceId: string | null;
+  esp32DeviceMac: string | null;
   isActive: boolean;
 }
 
@@ -65,7 +70,13 @@ interface UnitData {
   entityId: number;
   unitIdentifier: string;
   label: string | null;
+  hardwareType: "adt_google" | "esp32_custom";
   smartSpeakerId: string | null;
+  esp32DeviceMac: string | null;
+  esp32FirmwareVersion: string | null;
+  esp32LastHeartbeat: string | null;
+  esp32IpAddress: string | null;
+  esp32SignalStrength: number | null;
   floor: string | null;
   isActive: boolean;
   sensors: UnitSensor[];
@@ -94,7 +105,9 @@ export default function Units() {
   const [createOpen, setCreateOpen] = useState(false);
   const [unitId, setUnitId] = useState("");
   const [unitLabel, setUnitLabel] = useState("");
+  const [hardwareType, setHardwareType] = useState<"adt_google" | "esp32_custom">("adt_google");
   const [smartSpeakerId, setSmartSpeakerId] = useState("");
+  const [esp32DeviceMac, setEsp32DeviceMac] = useState("");
   const [floor, setFloor] = useState("");
   const [assignResidentUnit, setAssignResidentUnit] = useState<number | null>(null);
   const [assignSensorUnit, setAssignSensorUnit] = useState<number | null>(null);
@@ -130,7 +143,9 @@ export default function Units() {
       apiRequest("POST", "/api/entities/1/units", {
         unitIdentifier: unitId,
         label: unitLabel || undefined,
-        smartSpeakerId: smartSpeakerId || undefined,
+        hardwareType,
+        smartSpeakerId: hardwareType === "adt_google" ? (smartSpeakerId || undefined) : undefined,
+        esp32DeviceMac: hardwareType === "esp32_custom" ? (esp32DeviceMac || undefined) : undefined,
         floor: floor || undefined,
       }),
     onSuccess: () => {
@@ -139,7 +154,9 @@ export default function Units() {
       setCreateOpen(false);
       setUnitId("");
       setUnitLabel("");
+      setHardwareType("adt_google");
       setSmartSpeakerId("");
+      setEsp32DeviceMac("");
       setFloor("");
     },
     onError: (err: any) => {
@@ -272,14 +289,39 @@ export default function Units() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Smart Speaker ID</Label>
-                <Input
-                  placeholder="e.g., GH-402-LIVING"
-                  value={smartSpeakerId}
-                  onChange={(e) => setSmartSpeakerId(e.target.value)}
-                  data-testid="input-smart-speaker-id"
-                />
+                <Label>Hardware Type</Label>
+                <Select value={hardwareType} onValueChange={(v) => setHardwareType(v as "adt_google" | "esp32_custom")}>
+                  <SelectTrigger data-testid="select-hardware-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="adt_google">ADT + Google Home</SelectItem>
+                    <SelectItem value="esp32_custom">ESP32 Custom Hardware</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+              {hardwareType === "adt_google" && (
+                <div className="space-y-2">
+                  <Label>Smart Speaker ID</Label>
+                  <Input
+                    placeholder="e.g., GH-402-LIVING"
+                    value={smartSpeakerId}
+                    onChange={(e) => setSmartSpeakerId(e.target.value)}
+                    data-testid="input-smart-speaker-id"
+                  />
+                </div>
+              )}
+              {hardwareType === "esp32_custom" && (
+                <div className="space-y-2">
+                  <Label>ESP32 Device MAC Address</Label>
+                  <Input
+                    placeholder="e.g., AA:BB:CC:DD:EE:FF"
+                    value={esp32DeviceMac}
+                    onChange={(e) => setEsp32DeviceMac(e.target.value)}
+                    data-testid="input-esp32-device-mac"
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Floor</Label>
                 <Input
@@ -319,6 +361,17 @@ export default function Units() {
                   <CardTitle className="text-base truncate" data-testid={`text-unit-name-${unit.id}`}>{unit.unitIdentifier}</CardTitle>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
+                  <Badge
+                    variant={unit.hardwareType === "esp32_custom" ? "default" : "secondary"}
+                    className="text-xs"
+                    data-testid={`badge-hardware-${unit.id}`}
+                  >
+                    {unit.hardwareType === "esp32_custom" ? (
+                      <><Cpu className="w-3 h-3 mr-1" />ESP32</>
+                    ) : (
+                      <>ADT</>
+                    )}
+                  </Badge>
                   {unit.floor && <Badge variant="outline" className="text-xs">{unit.floor}</Badge>}
                   <Button
                     size="icon"
@@ -386,7 +439,9 @@ export default function Units() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <Radio className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium">Motion Sensors</span>
+                    <span className="text-sm font-medium">
+                      {unit.hardwareType === "esp32_custom" ? "mmWave Sensors" : "Motion Sensors"}
+                    </span>
                     <Badge variant="secondary" className="text-xs">{unit.sensors.length}</Badge>
                   </div>
                   {unit.sensors.length > 0 && (
@@ -441,12 +496,94 @@ export default function Units() {
                   </div>
                 </div>
 
-                {unit.smartSpeakerId && (
+                {unit.hardwareType === "esp32_custom" && unit.esp32DeviceMac && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Cpu className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-sm font-medium">ESP32-S3-BOX-3</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => pushCheckInMutation.mutate(unit.id)}
+                          disabled={!unit.resident || pushCheckInMutation.isPending}
+                          title="Push check-in to ESP32 speaker"
+                          data-testid={`button-push-checkin-${unit.id}`}
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setSpeakerEventsUnit(speakerEventsUnit === unit.id ? null : unit.id)}
+                          title="View speaker events"
+                          data-testid={`button-speaker-events-${unit.id}`}
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="pl-5 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Wifi className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground" data-testid={`text-esp32-mac-${unit.id}`}>
+                          {unit.esp32DeviceMac}
+                        </span>
+                        {unit.esp32SignalStrength !== null && (
+                          <Badge variant="outline" className="text-[10px]">
+                            <Signal className="w-2.5 h-2.5 mr-0.5" />
+                            {unit.esp32SignalStrength} dBm
+                          </Badge>
+                        )}
+                      </div>
+                      {unit.esp32FirmwareVersion && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Activity className="w-3 h-3" />
+                          FW: {unit.esp32FirmwareVersion}
+                        </p>
+                      )}
+                      {unit.esp32IpAddress && (
+                        <p className="text-xs text-muted-foreground">
+                          IP: {unit.esp32IpAddress}
+                        </p>
+                      )}
+                      {unit.esp32LastHeartbeat && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          Last seen: {new Date(unit.esp32LastHeartbeat).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+
+                    {speakerEventsUnit === unit.id && speakerEvents && (
+                      <div className="pl-5 space-y-1 max-h-36 overflow-y-auto" data-testid={`speaker-events-list-${unit.id}`}>
+                        {speakerEvents.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No events yet</p>
+                        ) : (
+                          speakerEvents.map((evt) => (
+                            <div key={evt.id} className="flex items-start gap-2 text-xs" data-testid={`speaker-event-${evt.id}`}>
+                              <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                                {evt.eventType.replace(/_/g, " ")}
+                              </Badge>
+                              <span className="text-muted-foreground truncate">
+                                {evt.message?.slice(0, 60) || evt.status}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {unit.hardwareType === "adt_google" && unit.smartSpeakerId && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Speaker className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span className="text-sm font-medium">Smart Speaker</span>
+                        <span className="text-sm font-medium">Google Home Speaker</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Button

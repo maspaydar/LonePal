@@ -1,157 +1,32 @@
 # EchoPath Nexus
 
 ## Overview
-Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
-
-## Recent Changes
-- **2026-02-15**: Phase 5 Cloud Orchestration & Centralized Maintenance
-  - VPC auth middleware (`server/middleware/vpc-auth.ts`): restricts /api/maintenance to internal IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) or x-vpc-source header with VPC_AUTH_TOKEN
-  - Log streamer service (`server/services/log-streamer.ts`): hooks into alert/scenario creation, pushes critical errors and safety alerts to central_log_entries table
-  - central_log_entries table: severity (info/warning/error/critical), source, message, metadata, facilityId
-  - Global Broadcast: POST /api/super-admin/broadcast-config pushes config changes to all active facilities simultaneously
-  - Hardware Heartbeat: GET /api/heartbeat returns unit/sensor/speaker/resident status; POST /api/super-admin/facilities/heartbeat-all aggregates across facilities
-  - Recovery Scripts: 5 pre-defined scripts (db_vacuum_analyze, clear_stale_sessions, reset_ai_engine, fix_sensor_sync, restart_inactivity_monitor)
-  - recovery_scripts and recovery_execution_logs tables for script storage and audit trail
-  - Super-Admin Dashboard UI: 5 panel tabs (Facility Registry, Health Map, Log Stream, Broadcast, Recovery)
-  - Health Map panel: visual unit-by-unit hardware status with speaker/sensor/resident health indicators
-  - Log Stream panel: centralized log viewer with severity filtering
-  - Broadcast panel: push config changes to all facilities at once
-  - Recovery panel: select facility, view/execute recovery scripts, see execution results and history
-- **2026-02-15**: Phase 4 Facility Onboarding & Testing
-  - `scripts/deployFacility.js`: Interactive facility deployment - generates unique Facility_ID, prompts for Gemini API key, creates isolated /data directory, registers with Super-Admin Hub, seeds scenarios, optional resident/unit/sensor setup
-  - Hardware Test: GET /api/test/unit/:unitId verifies resident assignment, motion sensors, smart speaker, mobile app, AI companion, and failover readiness
-  - Tenant Isolation Test: GET /api/test/isolation/:entityId verifies data isolation between facilities
-  - Speaker Failover: If Google Home is offline (3+ consecutive failures), check-ins automatically route to mobile app via WebSocket push
-  - Speaker health tracking: consecutiveFailures counter, getSpeakerHealth() status, GET /api/speaker/health/:speakerId
-  - HMAC-SHA256 encryption on all Super-Admin Remote Fix commands (already implemented in Phase 8, verified)
-  - getActiveMobileTokens() storage method for failover and hardware test connectivity checks
-- **2026-02-15**: Phase 3 Smart Speaker & Mobile Integration
-  - Smart Speaker Audio Gateway service (`server/services/speaker-gateway.ts`): pushCheckIn(), activateListenMode(), handleSpeakerResponse()
-  - Safety alerts push AI-generated audio check-ins to unit's Google Home speaker via gateway
-  - "Listen Mode" activates 10-second microphone capture after check-in, processes voice responses
-  - Quiet Hours support: respects user preference to skip audio during configured hours
-  - Speaker webhook at POST /api/speaker/webhook/response for Google Home Action callbacks
-  - speaker_events table logs all push/listen/response/timeout events per unit
-  - Mobile Preferences API: GET/POST /api/mobile/preferences for aiVerbosity, quietHours, voiceTone
-  - user_preferences table (residentId, aiVerbosity, quietHoursStart, quietHoursEnd, preferredVoiceTone)
-  - AI engine updated: buildPersonaPrompt() incorporates verbosity and tone preferences from user_preferences
-  - Device Pairing: Admin generates QR pairing codes per unit (POST /api/entities/:entityId/units/:unitId/pairing-code)
-  - device_pairing_codes table (code, unitId, entityId, expiresAt, isUsed, usedByResidentId)
-  - Mobile pairing endpoint POST /api/mobile/pair: validates code, links resident to unit
-  - Units page UI: Push Check-In button per speaker, speaker event log viewer, pairing code generator with copy/expiry
-- **2026-02-15**: Phase 2 Per-Unit Hardware & Device Mapping
-  - New `units` table: unitIdentifier, entityId, smartSpeakerId, floor, label, isActive
-  - Residents and sensors now have unitId FK for unit assignment
-  - Entity-level Gemini API key isolation via `geminiApiKey` column on entities table
-  - AI engine uses getAIForEntity() to check entity-specific key before falling back to global GEMINI_API_KEY
-  - ADT webhook updated: sensor → unit → resident routing (motion in Apt-402 triggers only for that unit's resident)
-  - Unit Management API: CRUD at /api/entities/:entityId/units, assign/unassign resident and sensor endpoints
-  - Unit Management Dashboard UI page at /units with unit cards, resident assignment, sensor assignment, smart speaker display
-  - Sidebar navigation updated with "Units" link
-- **2026-02-15**: Phase 8 Remote Diagnostic & Maintenance Tunnel
-  - HMAC-signed maintenance API at /api/maintenance/* (signature + timestamp verification, 5min window)
-  - Log Retrieval: Fetch last N lines from any log file, list available log files
-  - Service Restart: Remotely restart AI engine, inactivity monitor, or WebSocket services
-  - Cache Clear: Clear persona cache, query cache, temp files, or all caches at once
-  - Diagnostics: Remote system info (uptime, memory, node version, PID, log file count)
-  - Super-Admin proxy routes: /api/super-admin/facilities/:id/maintenance/* forwards signed requests to facilities
-  - maintenance_logs table for audit trail of all remote maintenance operations
-  - Dashboard UI: Remote Fix dialog with tabs for Logs viewer, Services restart, Cache clear, Diagnostics
-  - AI engine exports resetClient() and clearPersonaCache() for remote maintenance hooks
-- **2026-02-15**: Phase 7 Super-Admin Command Hub
-  - Super-Admin authentication: email/password login + TOTP two-factor authentication via otplib
-  - JWT-based session with 8h expiry, pending 2FA tokens with 5m expiry
-  - Facility Registry: CRUD API for managing multiple EchoPath facility installations
-  - Remote Configuration: Push config (env vars, API keys) to facilities via POST to their /api/super-admin/receive-config
-  - Health Monitoring: /api/health endpoint on each facility, centralized health check pings all facilities
-  - Super-Admin Dashboard UI at /super-admin with login (2FA support), facility grid with status lights, health check, config push
-  - Database tables: super_admins, facilities, facility_health_logs
-  - Routes mounted at /api/super-admin/* with JWT auth middleware
-- **2026-02-13**: Voice-First Mobile App + Streaming AI
-  - Chat screen rebuilt as voice-first interface with large microphone button
-  - Audio recording via expo-av, text-to-speech via expo-speech
-  - Streaming AI responses via SSE endpoint POST /api/mobile/respond-stream
-  - Gemini audio transcription for voice-to-text (no separate STT service needed)
-  - In-memory persona cache with 10-min TTL to reduce DB lookups
-  - Conversation history summarization for long conversations (>30 messages)
-  - Visual state indicators: listening (red), thinking (amber), speaking (green)
-  - Text input fallback available via "Type" button
-  - Upgraded to Gemini 2.0 Flash model
-- **2026-02-13**: Expo React Native Mobile App
-  - Standalone Expo project in mobile/ directory with expo-router, expo-secure-store
-  - PIN login, AI companion chat, safety status, check-in alerts, announcements screens
-  - API client connects to /api/mobile/* endpoints with JWT token management via SecureStore
-  - Server URL persisted in SecureStore for cross-session use
-  - POST /api/conversations endpoint added for mobile conversation creation
-  - mobile/README.md with Expo Go preview instructions
-- **2026-02-13**: Phase 6 Deployment & Simulation
-  - scripts/onboard.js: Automated facility setup with resident, sensors, and test intake interview
-  - scripts/simulateMotion.js: ADT motion simulator with 4 modes (normal, inactivity, burst, stop)
-  - README.md: Full guide covering Admin Dashboard, Mobile Companion App, API reference, and architecture
-  - mobilePin stripped from dashboard API responses for security
-- **2026-02-13**: Phase 5.5 Mobile Companion Frontend
-  - Mobile login page at /companion with large-text PIN entry for senior accessibility
-  - Full-screen companion chat at /companion/chat with personalized AI conversation
-  - EchoPath safety status badge (green=secure, amber=monitoring, red=alert)
-  - Proactive check-in popup when inactivity is detected via WebSocket
-  - Community announcements panel with unseen counter badge
-  - Mobile auth context with 30-day token persistence in localStorage
-  - Separate layout (no sidebar) for /companion/* routes
-- **2026-02-13**: Phase 5 Mobile API Gateway
-  - Mobile Sync: GET /api/mobile/sync/:entityId/:userId returns last AI message, safety status, community announcements
-  - CORS: Express configured with origin: true, credentials, mobile-friendly headers (Expo/React Native compatible)
-  - Auth: JWT-based token login via POST /api/mobile/login with PIN-based auth (bcrypt hashed)
-  - Token lifecycle: 30-day expiry, DB-backed revocation via POST /api/mobile/logout, tokenId binding in JWT claims
-  - Profile endpoint: GET /api/mobile/profile for authenticated resident profile data
-  - mobile_tokens table and mobilePin column on residents added to schema
-  - Auth middleware validates JWT signature, DB token existence, tokenId binding, and expiry
-- **2026-02-13**: Phase 4 Facility Admin Dashboard UI
-  - Enhanced Nexus Dashboard with resident monitoring grid (status lights: Green/Active, Red/Alert)
-  - AI Insights panel: Gemini-powered mood analysis from last conversations per resident
-  - Community Broadcast: form to send announcements to all AI companions, delivered as companion messages
-  - community_broadcasts DB table for persistence
-  - API endpoints: GET/POST /api/entities/:id/broadcasts, GET /api/entities/:id/ai-insights
-- **2026-02-13**: Phase 2 Entity & User Management API
-  - registryService layer for creating entities and managing residents
-  - Privacy-first anonymous username generation (e.g. "Resident_7701") persisted in DB
-  - Admin endpoints: POST /api/admin/entities, POST/GET /api/admin/:entityId/users
-  - Zod validation in registry service for consistent data integrity
-- **2026-02-13**: Phase 1 Multi-Tenant Infrastructure implemented
-  - Tenant data folder provisioning at `/data/entities/[entityID]/{profiles,conversations,activity}`
-  - `tenantResolver` middleware extracts `x-entity-id` header for data isolation
-  - Daily file logging to `/data/logs/echopath-YYYY-MM-DD.log` (JSON format)
-  - CORS, uuid, bcryptjs, jsonwebtoken dependencies installed
-  - AI engine uses lazy initialization for Gemini client (works with placeholder responses if no API key)
-
-## Project Architecture
-- **Database**: PostgreSQL (Neon-backed via Drizzle ORM)
-- **Backend**: Express.js with WebSocket support
-- **Frontend**: React + Vite + shadcn/ui + Tailwind CSS
-- **AI**: Google Gemini 1.5 Flash via @google/genai (lazy init)
-- **Multi-tenancy**: Dual layer - PostgreSQL entityId foreign keys + file-based `/data/entities/[id]/` folders
-- **Auth packages installed**: bcryptjs, jsonwebtoken (ready for JWT auth implementation)
-
-## Key Files
-- `shared/schema.ts` - Drizzle schema with all tables and Zod insert schemas
-- `server/storage.ts` - IStorage interface and DatabaseStorage implementation
-- `server/routes.ts` - All API routes including ADT webhook, mobile API, scenario triggers
-- `server/ai-engine.ts` - Gemini AI integration with Digital Twin personas
-- `server/tenant-folders.ts` - File-based tenant data folder management
-- `server/daily-logger.ts` - Daily rotating JSON log file utility
-- `server/middleware/tenant-resolver.ts` - Multi-tenant header middleware
-- `server/middleware/mobile-auth.ts` - JWT-based mobile auth middleware with token binding
-- `client/src/pages/dashboard.tsx` - Main Nexus Dashboard
-- `client/src/components/app-sidebar.tsx` - Navigation sidebar
-- `scripts/onboard.js` - Facility onboarding automation
-- `scripts/simulateMotion.js` - ADT motion sensor simulator
-- `server/routes/super-admin.ts` - Super-Admin API routes (auth, facilities, health, maintenance proxy)
-- `server/routes/maintenance.ts` - Facility-side maintenance API (logs, restart, cache, diagnostics)
-- `server/middleware/super-admin-auth.ts` - Super-Admin JWT auth middleware with 2FA
-- `server/middleware/maintenance-auth.ts` - HMAC signature verification for maintenance requests
-- `client/src/pages/super-admin-login.tsx` - Super-Admin login page with 2FA support
-- `client/src/pages/super-admin-dashboard.tsx` - Super-Admin facility management dashboard with Remote Fix
-- `README.md` - System documentation and guide
+EchoPath Nexus is a multi-tenant, AI-powered safety monitoring system designed for senior living facilities. Its primary purpose is to enhance resident safety through proactive inactivity detection, personalized check-ins, and a comprehensive suite of administrative tools. The system integrates various hardware sensors (ADT motion sensors, ESP32 mmWave sensors) with Google Gemini AI for intelligent scenario-based monitoring. It offers a secure and isolated environment for each facility, with capabilities for remote management, health monitoring, and a voice-first mobile companion app for residents. The project aims to provide peace of mind for residents and caregivers by leveraging advanced AI and IoT technologies to create a responsive and intuitive safety net.
 
 ## User Preferences
 - API key-based Gemini integration (not managed AI Integrations)
 - Multi-tenant file-based data isolation alongside database
+
+## System Architecture
+The system employs a multi-tenant architecture with data isolation at both the database level (PostgreSQL with `entityId` foreign keys) and the file system level (`/data/entities/[id]/` folders). The backend is built with Express.js, providing a robust API layer and WebSocket support for real-time communication. The frontend utilizes React, Vite, shadcn/ui, and Tailwind CSS for a responsive and modern user interface.
+
+**Key Architectural Components:**
+- **Dual-Hardware Architecture:** Supports both ADT motion sensors integrated with Google Home (`adt_google`) and custom ESP32-S3-BOX-3 units with HLK-LD2410 mmWave sensors (`esp32_custom`).
+- **AI Engine:** Leverages Google Gemini 1.5 Flash for scenario-based inactivity detection, personalized check-ins, mood analysis, and conversational AI. It supports entity-specific API keys and lazy initialization.
+- **Smart Speaker Integration:** A `speaker-gateway` service handles pushing AI-generated audio check-ins to Google Home speakers, activates listen mode for voice responses, and respects quiet hours. ESP32 units use a dedicated WebSocket-based speaker service.
+- **Mobile Companion App:** A voice-first Expo React Native application provides residents with an AI companion chat, safety status, check-in alerts, and community announcements. It features PIN login, streaming AI responses via SSE, and Gemini audio transcription.
+- **Super-Admin Command Hub:** A centralized dashboard for managing multiple EchoPath facility installations, including authentication with TOTP 2FA, facility registry, remote configuration push, health monitoring, and a remote diagnostic & maintenance tunnel.
+- **Remote Diagnostic & Maintenance Tunnel:** Provides HMAC-signed access for remote log retrieval, service restarts, cache clearing, and system diagnostics for individual facilities.
+- **Tenant Isolation & Security:** `tenantResolver` middleware ensures data isolation. Mobile authentication uses JWTs with PIN-based login, DB-backed token revocation, and HMAC-SHA256 for Super-Admin remote commands.
+- **Data Storage:** PostgreSQL (Neon-backed via Drizzle ORM) for structured data, and file-based storage for tenant-specific profiles, conversations, and activity logs.
+- **UI/UX:** The administrative dashboards (Nexus and Super-Admin) feature intuitive UIs for resident monitoring, unit management, health maps, log streams, and recovery script execution. The mobile app prioritizes accessibility with large-text PIN entry and visual state indicators.
+
+## External Dependencies
+- **Database:** PostgreSQL (via Drizzle ORM)
+- **AI:** Google Gemini 1.5 Flash (@google/genai)
+- **Hardware Integration:**
+    - ADT (for motion sensor webhooks)
+    - Google Home (for smart speaker integration and audio output)
+    - ESP32-S3-BOX-3 with HLK-LD2410 mmWave sensors (for custom sensor and speaker functionality)
+- **Authentication:** `bcryptjs`, `jsonwebtoken`, `otplib` (for TOTP 2FA)
+- **Mobile Development:** Expo (expo-router, expo-secure-store, expo-av, expo-speech)

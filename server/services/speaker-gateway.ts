@@ -3,6 +3,7 @@ import { generateAICheckIn } from "../ai-engine";
 import { log } from "../index";
 import { dailyLogger } from "../daily-logger";
 import type { Resident, Unit } from "@shared/schema";
+import { pushEsp32CheckIn, activateEsp32ListenMode, getEsp32Health } from "./esp32-speaker";
 
 interface SpeakerCommand {
   speakerId: string;
@@ -199,6 +200,22 @@ export async function pushCheckIn(
     triggerLocation,
     conversationHistory
   );
+
+  if (unit.hardwareType === "esp32_custom") {
+    const esp32Result = await pushEsp32CheckIn(resident, unit, checkInMessage, scenarioId);
+    if (!esp32Result.success) {
+      log(`ESP32 speaker offline for unit ${unit.unitIdentifier}, using mobile failover`, "speaker-gateway");
+      const failover = await failoverToMobileApp(resident, unit, checkInMessage, scenarioId, _broadcastFn || undefined);
+      return {
+        speakerEventId: esp32Result.speakerEventId,
+        message: checkInMessage,
+        skippedQuietHours: false,
+        failoverUsed: true,
+        failoverConversationId: failover.conversationId,
+      };
+    }
+    return { speakerEventId: esp32Result.speakerEventId, message: checkInMessage, skippedQuietHours: false, failoverUsed: false };
+  }
 
   if (!unit.smartSpeakerId || !isSpeakerHealthy(unit.smartSpeakerId)) {
     const reason = !unit.smartSpeakerId ? "no speaker configured" : "speaker unhealthy";
@@ -420,9 +437,12 @@ export async function pushCheckInWithListenMode(
     };
   }
 
-  const listenResult = await activateListenMode(
-    unit, resident.id, checkInResult.speakerEventId, scenarioId, 10000
-  );
+  let listenResult: ListenModeResult;
+  if (unit.hardwareType === "esp32_custom") {
+    listenResult = await activateEsp32ListenMode(unit, resident.id, checkInResult.speakerEventId, scenarioId, 10000);
+  } else {
+    listenResult = await activateListenMode(unit, resident.id, checkInResult.speakerEventId, scenarioId, 10000);
+  }
 
   return {
     checkInMessage: checkInResult.message,

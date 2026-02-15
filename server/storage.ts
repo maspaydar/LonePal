@@ -4,6 +4,7 @@ import {
   type Unit, type InsertUnit,
   type Resident, type InsertResident,
   type Sensor, type InsertSensor,
+  type Esp32SensorData, type InsertEsp32SensorData,
   type MotionEvent, type InsertMotionEvent,
   type ScenarioConfig, type InsertScenarioConfig,
   type ActiveScenario, type InsertActiveScenario,
@@ -22,7 +23,7 @@ import {
   type CentralLogEntry, type InsertCentralLogEntry,
   type RecoveryScript, type InsertRecoveryScript,
   type RecoveryExecutionLog, type InsertRecoveryExecutionLog,
-  users, entities, residents, sensors, motionEvents, units,
+  users, entities, residents, sensors, esp32SensorData, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
   maintenanceLogs, userPreferences, devicePairingCodes, speakerEvents,
@@ -58,8 +59,15 @@ export interface IStorage {
 
   getSensors(entityId: number): Promise<Sensor[]>;
   getSensorByAdtId(adtDeviceId: string): Promise<Sensor | undefined>;
+  getSensorByEsp32Mac(deviceMac: string): Promise<Sensor | undefined>;
   createSensor(sensor: InsertSensor): Promise<Sensor>;
   updateSensor(id: number, data: Partial<InsertSensor>): Promise<Sensor | undefined>;
+
+  createEsp32SensorData(data: InsertEsp32SensorData): Promise<Esp32SensorData>;
+  getEsp32SensorData(unitId: number, limit?: number): Promise<Esp32SensorData[]>;
+  getLatestEsp32SensorData(unitId: number): Promise<Esp32SensorData | undefined>;
+
+  getUnitByEsp32Mac(deviceMac: string): Promise<Unit | undefined>;
 
   createMotionEvent(event: InsertMotionEvent): Promise<MotionEvent>;
   getMotionEvents(entityId: number, limit?: number): Promise<MotionEvent[]>;
@@ -271,6 +279,30 @@ export class DatabaseStorage implements IStorage {
   async updateSensor(id: number, data: Partial<InsertSensor>): Promise<Sensor | undefined> {
     const [updated] = await db.update(sensors).set(data).where(eq(sensors.id, id)).returning();
     return updated;
+  }
+
+  async getSensorByEsp32Mac(deviceMac: string): Promise<Sensor | undefined> {
+    const [sensor] = await db.select().from(sensors).where(eq(sensors.esp32DeviceMac, deviceMac));
+    return sensor;
+  }
+
+  async createEsp32SensorData(data: InsertEsp32SensorData): Promise<Esp32SensorData> {
+    const [created] = await db.insert(esp32SensorData).values(data).returning();
+    return created;
+  }
+
+  async getEsp32SensorData(unitId: number, limit = 50): Promise<Esp32SensorData[]> {
+    return db.select().from(esp32SensorData).where(eq(esp32SensorData.unitId, unitId)).orderBy(desc(esp32SensorData.createdAt)).limit(limit);
+  }
+
+  async getLatestEsp32SensorData(unitId: number): Promise<Esp32SensorData | undefined> {
+    const [data] = await db.select().from(esp32SensorData).where(eq(esp32SensorData.unitId, unitId)).orderBy(desc(esp32SensorData.createdAt)).limit(1);
+    return data;
+  }
+
+  async getUnitByEsp32Mac(deviceMac: string): Promise<Unit | undefined> {
+    const [unit] = await db.select().from(units).where(eq(units.esp32DeviceMac, deviceMac));
+    return unit;
   }
 
   async createMotionEvent(event: InsertMotionEvent): Promise<MotionEvent> {
