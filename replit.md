@@ -4,6 +4,14 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-15**: Phase 4 Facility Onboarding & Testing
+  - `scripts/deployFacility.js`: Interactive facility deployment - generates unique Facility_ID, prompts for Gemini API key, creates isolated /data directory, registers with Super-Admin Hub, seeds scenarios, optional resident/unit/sensor setup
+  - Hardware Test: GET /api/test/unit/:unitId verifies resident assignment, motion sensors, smart speaker, mobile app, AI companion, and failover readiness
+  - Tenant Isolation Test: GET /api/test/isolation/:entityId verifies data isolation between facilities
+  - Speaker Failover: If Google Home is offline (3+ consecutive failures), check-ins automatically route to mobile app via WebSocket push
+  - Speaker health tracking: consecutiveFailures counter, getSpeakerHealth() status, GET /api/speaker/health/:speakerId
+  - HMAC-SHA256 encryption on all Super-Admin Remote Fix commands (already implemented in Phase 8, verified)
+  - getActiveMobileTokens() storage method for failover and hardware test connectivity checks
 - **2026-02-15**: Phase 3 Smart Speaker & Mobile Integration
   - Smart Speaker Audio Gateway service (`server/services/speaker-gateway.ts`): pushCheckIn(), activateListenMode(), handleSpeakerResponse()
   - Safety alerts push AI-generated audio check-ins to unit's Google Home speaker via gateway

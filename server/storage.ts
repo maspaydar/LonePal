@@ -100,6 +100,7 @@ export interface IStorage {
   updateMobileTokenLastUsed(id: number): Promise<void>;
   updateMobileTokenValue(id: number, token: string): Promise<void>;
   deactivateMobileToken(id: number): Promise<void>;
+  getActiveMobileTokens(residentId: number): Promise<MobileToken[]>;
 
   seedDemoData(entityId: number): Promise<void>;
 
@@ -531,6 +532,11 @@ export class DatabaseStorage implements IStorage {
 
   async deactivateMobileToken(id: number): Promise<void> {
     await db.update(mobileTokens).set({ isActive: false }).where(eq(mobileTokens.id, id));
+  }
+
+  async getActiveMobileTokens(residentId: number): Promise<MobileToken[]> {
+    return db.select().from(mobileTokens)
+      .where(and(eq(mobileTokens.residentId, residentId), eq(mobileTokens.isActive, true)));
   }
 
   async getSuperAdminByEmail(email: string): Promise<SuperAdmin | undefined> {

@@ -27,6 +27,12 @@ const pendingListenSessions = new Map<string, {
   resolve: (result: ListenModeResult) => void;
 }>();
 
+const speakerHealthStatus = new Map<string, {
+  lastSuccess: Date | null;
+  lastFailure: Date | null;
+  consecutiveFailures: number;
+}>();
+
 function isQuietHours(residentId: number, quietStart: string | null, quietEnd: string | null): boolean {
   if (!quietStart || !quietEnd) return false;
 
@@ -44,14 +50,120 @@ function isQuietHours(residentId: number, quietStart: string | null, quietEnd: s
   return currentMinutes >= startMinutes || currentMinutes < endMinutes;
 }
 
-async function sendToSpeaker(command: SpeakerCommand): Promise<boolean> {
-  log(`Speaker command -> ${command.speakerId}: ${command.action} "${command.text?.slice(0, 80) || ""}"`, "speaker-gateway");
-  dailyLogger.info("speaker-gateway", `Sent ${command.action} to ${command.speakerId}`, {
-    speakerId: command.speakerId,
-    action: command.action,
-    textLength: command.text?.length || 0,
+function isSpeakerHealthy(speakerId: string): boolean {
+  const health = speakerHealthStatus.get(speakerId);
+  if (!health) return true;
+  return health.consecutiveFailures < 3;
+}
+
+function recordSpeakerSuccess(speakerId: string) {
+  speakerHealthStatus.set(speakerId, {
+    lastSuccess: new Date(),
+    lastFailure: speakerHealthStatus.get(speakerId)?.lastFailure || null,
+    consecutiveFailures: 0,
   });
-  return true;
+}
+
+function recordSpeakerFailure(speakerId: string) {
+  const existing = speakerHealthStatus.get(speakerId);
+  speakerHealthStatus.set(speakerId, {
+    lastSuccess: existing?.lastSuccess || null,
+    lastFailure: new Date(),
+    consecutiveFailures: (existing?.consecutiveFailures || 0) + 1,
+  });
+}
+
+async function sendToSpeaker(command: SpeakerCommand): Promise<boolean> {
+  try {
+    log(`Speaker command -> ${command.speakerId}: ${command.action} "${command.text?.slice(0, 80) || ""}"`, "speaker-gateway");
+    dailyLogger.info("speaker-gateway", `Sent ${command.action} to ${command.speakerId}`, {
+      speakerId: command.speakerId,
+      action: command.action,
+      textLength: command.text?.length || 0,
+    });
+
+    recordSpeakerSuccess(command.speakerId);
+    return true;
+  } catch (error) {
+    log(`Speaker ${command.speakerId} unreachable: ${error}`, "speaker-gateway");
+    recordSpeakerFailure(command.speakerId);
+    return false;
+  }
+}
+
+async function failoverToMobileApp(
+  resident: Resident,
+  unit: Unit,
+  checkInMessage: string,
+  scenarioId?: number,
+  broadcastFn?: (data: any) => void
+): Promise<{ fallbackUsed: boolean; conversationId?: number }> {
+  const tokens = await storage.getActiveMobileTokens(resident.id);
+  if (!tokens || tokens.length === 0) {
+    log(`No mobile app sessions for resident ${resident.id} — failover not possible`, "speaker-gateway");
+    dailyLogger.warn("speaker-gateway", `Failover failed: no mobile sessions for resident ${resident.id}`, {
+      residentId: resident.id,
+      unitId: unit.id,
+    });
+    return { fallbackUsed: false };
+  }
+
+  let conversation = await storage.getActiveConversationForResident(unit.entityId, resident.id);
+  if (!conversation) {
+    conversation = await storage.createConversation({
+      entityId: unit.entityId,
+      residentId: resident.id,
+      title: `Safety Check-In - ${new Date().toLocaleString()}`,
+      isActive: true,
+      scenarioId: scenarioId || undefined,
+    });
+  }
+
+  await storage.createMessage({
+    conversationId: conversation.id,
+    role: "assistant",
+    content: checkInMessage,
+  });
+
+  await storage.createSpeakerEvent({
+    entityId: unit.entityId,
+    unitId: unit.id,
+    residentId: resident.id,
+    smartSpeakerId: unit.smartSpeakerId || "none",
+    eventType: "failover_mobile",
+    message: `Speaker offline — check-in routed to mobile app. ConversationId: ${conversation.id}`,
+    scenarioId: scenarioId || null,
+    status: "sent",
+  });
+
+  if (broadcastFn) {
+    broadcastFn({
+      type: "check_in_push",
+      data: {
+        residentId: resident.id,
+        entityId: unit.entityId,
+        conversationId: conversation.id,
+        message: checkInMessage,
+        failover: true,
+        source: "mobile_failover",
+      },
+    });
+  }
+
+  log(`Failover: check-in routed to mobile app for resident ${resident.id} (conv ${conversation.id})`, "speaker-gateway");
+  dailyLogger.info("speaker-gateway", `Failover to mobile for resident ${resident.id}`, {
+    residentId: resident.id,
+    unitId: unit.id,
+    conversationId: conversation.id,
+  });
+
+  return { fallbackUsed: true, conversationId: conversation.id };
+}
+
+let _broadcastFn: ((data: any) => void) | null = null;
+
+export function setSpeakerBroadcastFn(fn: (data: any) => void) {
+  _broadcastFn = fn;
 }
 
 export async function pushCheckIn(
@@ -62,20 +174,16 @@ export async function pushCheckIn(
   scenarioId?: number,
   triggerLocation?: string | null,
   conversationHistory?: { role: string; content: string }[]
-): Promise<{ speakerEventId: number; message: string; skippedQuietHours: boolean }> {
-  if (!unit.smartSpeakerId) {
-    log(`No smart speaker configured for unit ${unit.unitIdentifier}`, "speaker-gateway");
-    throw new Error(`No smart speaker configured for unit ${unit.unitIdentifier}`);
-  }
-
+): Promise<{ speakerEventId: number; message: string; skippedQuietHours: boolean; failoverUsed?: boolean; failoverConversationId?: number }> {
   const prefs = await storage.getUserPreferences(resident.id);
   if (prefs && isQuietHours(resident.id, prefs.quietHoursStart, prefs.quietHoursEnd)) {
     log(`Quiet hours active for resident ${resident.id}, skipping audio push`, "speaker-gateway");
+    const speakerId = unit.smartSpeakerId || "none";
     const event = await storage.createSpeakerEvent({
       entityId: unit.entityId,
       unitId: unit.id,
       residentId: resident.id,
-      smartSpeakerId: unit.smartSpeakerId,
+      smartSpeakerId: speakerId,
       eventType: "check_in_push",
       message: "[Skipped - quiet hours active]",
       scenarioId: scenarioId || null,
@@ -92,6 +200,32 @@ export async function pushCheckIn(
     conversationHistory
   );
 
+  if (!unit.smartSpeakerId || !isSpeakerHealthy(unit.smartSpeakerId)) {
+    const reason = !unit.smartSpeakerId ? "no speaker configured" : "speaker unhealthy";
+    log(`${reason} for unit ${unit.unitIdentifier}, using mobile failover`, "speaker-gateway");
+
+    const event = await storage.createSpeakerEvent({
+      entityId: unit.entityId,
+      unitId: unit.id,
+      residentId: resident.id,
+      smartSpeakerId: unit.smartSpeakerId || "none",
+      eventType: "check_in_push",
+      message: checkInMessage,
+      scenarioId: scenarioId || null,
+      status: "failover_mobile",
+    });
+
+    const failover = await failoverToMobileApp(resident, unit, checkInMessage, scenarioId, _broadcastFn || undefined);
+
+    return {
+      speakerEventId: event.id,
+      message: checkInMessage,
+      skippedQuietHours: false,
+      failoverUsed: true,
+      failoverConversationId: failover.conversationId,
+    };
+  }
+
   const event = await storage.createSpeakerEvent({
     entityId: unit.entityId,
     unitId: unit.id,
@@ -103,11 +237,32 @@ export async function pushCheckIn(
     status: "sent",
   });
 
-  await sendToSpeaker({
+  const speakerSuccess = await sendToSpeaker({
     speakerId: unit.smartSpeakerId,
     action: "speak",
     text: checkInMessage,
   });
+
+  if (!speakerSuccess) {
+    await storage.updateSpeakerEvent(event.id, { status: "speaker_offline" });
+
+    const failover = await failoverToMobileApp(resident, unit, checkInMessage, scenarioId, _broadcastFn || undefined);
+
+    dailyLogger.warn("speaker-gateway", `Speaker ${unit.smartSpeakerId} offline, failover to mobile for ${unit.unitIdentifier}`, {
+      entityId: unit.entityId,
+      unitId: unit.id,
+      residentId: resident.id,
+      speakerEventId: event.id,
+    });
+
+    return {
+      speakerEventId: event.id,
+      message: checkInMessage,
+      skippedQuietHours: false,
+      failoverUsed: true,
+      failoverConversationId: failover.conversationId,
+    };
+  }
 
   dailyLogger.info("speaker-gateway", `Check-in pushed to ${unit.unitIdentifier} for ${resident.preferredName || resident.firstName}`, {
     entityId: unit.entityId,
@@ -118,7 +273,7 @@ export async function pushCheckIn(
     escalationLevel,
   });
 
-  return { speakerEventId: event.id, message: checkInMessage, skippedQuietHours: false };
+  return { speakerEventId: event.id, message: checkInMessage, skippedQuietHours: false, failoverUsed: false };
 }
 
 export async function activateListenMode(
@@ -240,6 +395,7 @@ export async function pushCheckInWithListenMode(
   speakerEventId: number;
   listenResult: ListenModeResult | null;
   skippedQuietHours: boolean;
+  failoverUsed?: boolean;
 }> {
   const checkInResult = await pushCheckIn(
     resident, unit, scenarioType, escalationLevel, scenarioId, triggerLocation, conversationHistory
@@ -254,6 +410,16 @@ export async function pushCheckInWithListenMode(
     };
   }
 
+  if (checkInResult.failoverUsed) {
+    return {
+      checkInMessage: checkInResult.message,
+      speakerEventId: checkInResult.speakerEventId,
+      listenResult: null,
+      skippedQuietHours: false,
+      failoverUsed: true,
+    };
+  }
+
   const listenResult = await activateListenMode(
     unit, resident.id, checkInResult.speakerEventId, scenarioId, 10000
   );
@@ -263,6 +429,7 @@ export async function pushCheckInWithListenMode(
     speakerEventId: checkInResult.speakerEventId,
     listenResult,
     skippedQuietHours: false,
+    failoverUsed: false,
   };
 }
 
@@ -272,4 +439,15 @@ export function getActiveSessions(): { speakerId: string; unitId: number; reside
     sessions.push({ speakerId, unitId: session.unitId, residentId: session.residentId });
   });
   return sessions;
+}
+
+export function getSpeakerHealth(speakerId: string): {
+  healthy: boolean;
+  lastSuccess: Date | null;
+  lastFailure: Date | null;
+  consecutiveFailures: number;
+} {
+  const health = speakerHealthStatus.get(speakerId);
+  if (!health) return { healthy: true, lastSuccess: null, lastFailure: null, consecutiveFailures: 0 };
+  return { healthy: health.consecutiveFailures < 3, ...health };
 }

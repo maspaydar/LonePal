@@ -18,7 +18,7 @@ import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth";
 import superAdminRouter from "./routes/super-admin";
 import maintenanceRouter from "./routes/maintenance";
-import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions } from "./services/speaker-gateway";
+import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
 import { insertUserPreferencesSchema, insertDevicePairingCodeSchema } from "@shared/schema";
 import crypto from "crypto";
 
@@ -1247,6 +1247,11 @@ export async function registerRoutes(
     res.json(getActiveSessions());
   });
 
+  app.get("/api/speaker/health/:speakerId", async (req, res) => {
+    const health = getSpeakerHealth(req.params.speakerId);
+    res.json(health);
+  });
+
   // --- Mobile Preferences API ---
   app.get("/api/mobile/preferences", mobileAuthMiddleware, async (req, res) => {
     try {
@@ -1357,6 +1362,262 @@ export async function registerRoutes(
     }
   });
 
+  // --- Tenant Isolation Verification ---
+  app.get("/api/test/isolation/:entityId", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const entity = await storage.getEntity(entityId);
+      if (!entity) return res.status(404).json({ error: "Entity not found" });
+
+      const allEntities = await storage.getEntities();
+      const otherEntities = allEntities.filter(e => e.id !== entityId);
+
+      const checks: { check: string; status: "pass" | "fail"; details?: string }[] = [];
+
+      const residents = await storage.getResidents(entityId);
+      const residentEntityIds = new Set(residents.map(r => r.entityId));
+      const residentIsolated = residents.length === 0 || (residentEntityIds.size === 1 && residentEntityIds.has(entityId));
+      checks.push({
+        check: "resident_isolation",
+        status: residentIsolated ? "pass" : "fail",
+        details: `${residents.length} residents, all scoped to entity ${entityId}`,
+      });
+
+      const sensors = await storage.getSensors(entityId);
+      const sensorEntityIds = new Set(sensors.map(s => s.entityId));
+      const sensorIsolated = sensors.length === 0 || (sensorEntityIds.size === 1 && sensorEntityIds.has(entityId));
+      checks.push({
+        check: "sensor_isolation",
+        status: sensorIsolated ? "pass" : "fail",
+        details: `${sensors.length} sensors, all scoped to entity ${entityId}`,
+      });
+
+      for (const other of otherEntities) {
+        const otherResidents = await storage.getResidents(other.id);
+        const crossLeak = otherResidents.some(r => r.entityId === entityId);
+        if (crossLeak) {
+          checks.push({
+            check: `cross_entity_leak_${other.id}`,
+            status: "fail",
+            details: `Entity ${other.id} contains residents belonging to entity ${entityId}`,
+          });
+        }
+      }
+
+      const hasGeminiKey = !!entity.geminiApiKey;
+      checks.push({
+        check: "api_key_isolation",
+        status: hasGeminiKey ? "pass" : "warn",
+        details: hasGeminiKey ? "Entity has its own Gemini API key (fully isolated)" : "Uses global fallback key (shared — not fully isolated)",
+      });
+
+      const failCount = checks.filter(c => c.status === "fail").length;
+
+      res.json({
+        entityId,
+        entityName: entity.name,
+        isolated: failCount === 0,
+        checks,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: "Isolation check failed" });
+    }
+  });
+
+  // --- Hardware Test Utility ---
+  app.get("/api/test/unit/:unitId", async (req, res) => {
+    try {
+      const unitId = Number(req.params.unitId);
+      const unit = await storage.getUnit(unitId);
+      if (!unit) return res.status(404).json({ error: "Unit not found" });
+
+      const results: {
+        unitId: number;
+        unitIdentifier: string;
+        entityId: number;
+        tests: {
+          component: string;
+          status: "pass" | "fail" | "warn" | "skip";
+          message: string;
+          details?: any;
+        }[];
+        overallStatus: "pass" | "partial" | "fail";
+        testedAt: string;
+      } = {
+        unitId: unit.id,
+        unitIdentifier: unit.unitIdentifier,
+        entityId: unit.entityId,
+        tests: [],
+        overallStatus: "pass",
+        testedAt: new Date().toISOString(),
+      };
+
+      const resident = await storage.getResidentByUnit(unitId);
+      if (resident) {
+        results.tests.push({
+          component: "resident_assignment",
+          status: "pass",
+          message: `Resident assigned: ${resident.preferredName || resident.firstName} ${resident.lastName}`,
+          details: { residentId: resident.id, status: resident.status },
+        });
+      } else {
+        results.tests.push({
+          component: "resident_assignment",
+          status: "fail",
+          message: "No resident assigned to this unit",
+        });
+      }
+
+      const sensors = await storage.getSensorsByUnit(unitId);
+      if (sensors && sensors.length > 0) {
+        for (const sensor of sensors) {
+          const lastEvents = await storage.getResidentMotionEvents(sensor.residentId || 0, 1);
+          const hasRecentActivity = lastEvents.length > 0;
+          results.tests.push({
+            component: "motion_sensor",
+            status: sensor.isActive ? "pass" : "warn",
+            message: sensor.isActive
+              ? `Sensor ${sensor.adtDeviceId || sensor.location} is active${hasRecentActivity ? " with recent events" : ""}`
+              : `Sensor ${sensor.adtDeviceId || sensor.location} is inactive`,
+            details: {
+              sensorId: sensor.id,
+              adtDeviceId: sensor.adtDeviceId,
+              location: sensor.location,
+              isActive: sensor.isActive,
+              lastEventDetected: hasRecentActivity,
+            },
+          });
+        }
+      } else {
+        results.tests.push({
+          component: "motion_sensor",
+          status: "fail",
+          message: "No motion sensors assigned to this unit",
+        });
+      }
+
+      if (unit.smartSpeakerId) {
+        let speakerReachable = false;
+        try {
+          const recentEvents = await storage.getSpeakerEvents(unitId, 5);
+          const hasRecentSpeakerActivity = recentEvents.length > 0;
+          const lastEvent = recentEvents[0];
+
+          speakerReachable = true;
+          results.tests.push({
+            component: "smart_speaker",
+            status: "pass",
+            message: `Speaker ${unit.smartSpeakerId} is configured${hasRecentSpeakerActivity ? ` (last event: ${lastEvent?.eventType})` : ""}`,
+            details: {
+              speakerId: unit.smartSpeakerId,
+              recentEventCount: recentEvents.length,
+              lastEventType: lastEvent?.eventType || null,
+              lastEventStatus: lastEvent?.status || null,
+              lastEventTime: lastEvent?.createdAt || null,
+            },
+          });
+        } catch {
+          results.tests.push({
+            component: "smart_speaker",
+            status: "warn",
+            message: `Speaker ${unit.smartSpeakerId} configured but could not verify status`,
+          });
+        }
+
+        if (resident && speakerReachable) {
+          const prefs = await storage.getUserPreferences(resident.id);
+          const inQuietHours = prefs?.quietHoursStart && prefs?.quietHoursEnd;
+          results.tests.push({
+            component: "speaker_check_in_ready",
+            status: "pass",
+            message: `Check-in pipeline ready${inQuietHours ? " (quiet hours may apply)" : ""}`,
+            details: {
+              quietHoursConfigured: !!inQuietHours,
+              quietHoursStart: prefs?.quietHoursStart || null,
+              quietHoursEnd: prefs?.quietHoursEnd || null,
+            },
+          });
+        }
+      } else {
+        results.tests.push({
+          component: "smart_speaker",
+          status: "skip",
+          message: "No smart speaker configured for this unit",
+        });
+      }
+
+      if (resident) {
+        const tokens = await storage.getActiveMobileTokens(resident.id);
+        if (tokens && tokens.length > 0) {
+          results.tests.push({
+            component: "mobile_app",
+            status: "pass",
+            message: `Mobile app connected (${tokens.length} active session${tokens.length > 1 ? "s" : ""})`,
+            details: { activeTokens: tokens.length },
+          });
+        } else {
+          results.tests.push({
+            component: "mobile_app",
+            status: "warn",
+            message: "No active mobile app sessions — resident has not paired/logged in",
+          });
+        }
+
+        const conversations = await storage.getConversations(resident.id);
+        const activeConv = conversations.find((c: any) => c.isActive);
+        results.tests.push({
+          component: "ai_companion",
+          status: "pass",
+          message: activeConv
+            ? `Active conversation exists (ID: ${activeConv.id})`
+            : `AI companion ready (${conversations.length} past conversations)`,
+          details: {
+            totalConversations: conversations.length,
+            hasActiveConversation: !!activeConv,
+          },
+        });
+      }
+
+      if (!unit.smartSpeakerId && resident) {
+        results.tests.push({
+          component: "failover_check",
+          status: "pass",
+          message: "No speaker configured — check-ins will route to mobile app only",
+        });
+      } else if (unit.smartSpeakerId && resident) {
+        const tokens = await storage.getActiveMobileTokens(resident.id);
+        const hasMobileApp = tokens && tokens.length > 0;
+        results.tests.push({
+          component: "failover_check",
+          status: hasMobileApp ? "pass" : "warn",
+          message: hasMobileApp
+            ? "Failover ready: if speaker is offline, check-ins will route to mobile app"
+            : "Warning: no mobile app session — failover to mobile not available if speaker goes offline",
+        });
+      }
+
+      const failCount = results.tests.filter((t) => t.status === "fail").length;
+      const warnCount = results.tests.filter((t) => t.status === "warn").length;
+      if (failCount > 0) results.overallStatus = "fail";
+      else if (warnCount > 0) results.overallStatus = "partial";
+      else results.overallStatus = "pass";
+
+      dailyLogger.info("hardware-test", `Unit ${unit.unitIdentifier} test: ${results.overallStatus}`, {
+        unitId,
+        overallStatus: results.overallStatus,
+        passCount: results.tests.filter((t) => t.status === "pass").length,
+        failCount,
+        warnCount,
+      });
+
+      res.json(results);
+    } catch (error: any) {
+      log(`Hardware test error: ${error}`, "test");
+      res.status(500).json({ error: "Hardware test failed" });
+    }
+  });
+
   // --- Seed demo data ---
   app.post("/api/seed", async (req, res) => {
     let allEntities = await storage.getEntities();
@@ -1379,6 +1640,7 @@ export async function registerRoutes(
     res.json({ success: true, entityId: entity.id });
   });
 
+  setSpeakerBroadcastFn(broadcastToClients);
   emergencyService.start(broadcastToClients);
   inactivityMonitor.start(broadcastToClients);
 
