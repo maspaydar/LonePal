@@ -14,9 +14,11 @@ import {
   type SuperAdmin, type InsertSuperAdmin,
   type Facility, type InsertFacility,
   type FacilityHealthLog, type InsertFacilityHealthLog,
+  type MaintenanceLog, type InsertMaintenanceLog,
   users, entities, residents, sensors, motionEvents,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
+  maintenanceLogs,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
@@ -102,6 +104,10 @@ export interface IStorage {
 
   createFacilityHealthLog(log: InsertFacilityHealthLog): Promise<FacilityHealthLog>;
   getFacilityHealthLogs(facilityId: number, limit?: number): Promise<FacilityHealthLog[]>;
+
+  createMaintenanceLog(log: InsertMaintenanceLog): Promise<MaintenanceLog>;
+  getMaintenanceLogs(facilityId: number, limit?: number): Promise<MaintenanceLog[]>;
+  updateMaintenanceLog(id: number, data: Partial<MaintenanceLog>): Promise<MaintenanceLog | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -519,6 +525,23 @@ export class DatabaseStorage implements IStorage {
       .where(eq(facilityHealthLogs.facilityId, facilityId))
       .orderBy(desc(facilityHealthLogs.checkedAt))
       .limit(limit);
+  }
+
+  async createMaintenanceLog(log: InsertMaintenanceLog): Promise<MaintenanceLog> {
+    const [created] = await db.insert(maintenanceLogs).values(log).returning();
+    return created;
+  }
+
+  async getMaintenanceLogs(facilityId: number, limit: number = 50): Promise<MaintenanceLog[]> {
+    return db.select().from(maintenanceLogs)
+      .where(eq(maintenanceLogs.facilityId, facilityId))
+      .orderBy(desc(maintenanceLogs.createdAt))
+      .limit(limit);
+  }
+
+  async updateMaintenanceLog(id: number, data: Partial<MaintenanceLog>): Promise<MaintenanceLog | undefined> {
+    const [updated] = await db.update(maintenanceLogs).set(data).where(eq(maintenanceLogs.id, id)).returning();
+    return updated;
   }
 }
 

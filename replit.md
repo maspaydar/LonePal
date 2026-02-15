@@ -4,6 +4,16 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-15**: Phase 8 Remote Diagnostic & Maintenance Tunnel
+  - HMAC-signed maintenance API at /api/maintenance/* (signature + timestamp verification, 5min window)
+  - Log Retrieval: Fetch last N lines from any log file, list available log files
+  - Service Restart: Remotely restart AI engine, inactivity monitor, or WebSocket services
+  - Cache Clear: Clear persona cache, query cache, temp files, or all caches at once
+  - Diagnostics: Remote system info (uptime, memory, node version, PID, log file count)
+  - Super-Admin proxy routes: /api/super-admin/facilities/:id/maintenance/* forwards signed requests to facilities
+  - maintenance_logs table for audit trail of all remote maintenance operations
+  - Dashboard UI: Remote Fix dialog with tabs for Logs viewer, Services restart, Cache clear, Diagnostics
+  - AI engine exports resetClient() and clearPersonaCache() for remote maintenance hooks
 - **2026-02-15**: Phase 7 Super-Admin Command Hub
   - Super-Admin authentication: email/password login + TOTP two-factor authentication via otplib
   - JWT-based session with 8h expiry, pending 2FA tokens with 5m expiry
@@ -90,10 +100,12 @@ Multi-tenant AI-powered safety monitoring system for senior living facilities. I
 - `client/src/components/app-sidebar.tsx` - Navigation sidebar
 - `scripts/onboard.js` - Facility onboarding automation
 - `scripts/simulateMotion.js` - ADT motion sensor simulator
-- `server/routes/super-admin.ts` - Super-Admin API routes (auth, facilities, health)
+- `server/routes/super-admin.ts` - Super-Admin API routes (auth, facilities, health, maintenance proxy)
+- `server/routes/maintenance.ts` - Facility-side maintenance API (logs, restart, cache, diagnostics)
 - `server/middleware/super-admin-auth.ts` - Super-Admin JWT auth middleware with 2FA
+- `server/middleware/maintenance-auth.ts` - HMAC signature verification for maintenance requests
 - `client/src/pages/super-admin-login.tsx` - Super-Admin login page with 2FA support
-- `client/src/pages/super-admin-dashboard.tsx` - Super-Admin facility management dashboard
+- `client/src/pages/super-admin-dashboard.tsx` - Super-Admin facility management dashboard with Remote Fix
 - `README.md` - System documentation and guide
 
 ## User Preferences

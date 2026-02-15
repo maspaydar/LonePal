@@ -209,6 +209,19 @@ export const facilityHealthLogs = pgTable("facility_health_logs", {
   checkedAt: timestamp("checked_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const maintenanceLogs = pgTable("maintenance_logs", {
+  id: serial("id").primaryKey(),
+  facilityId: integer("facility_id").notNull(),
+  action: text("action").notNull(),
+  command: text("command"),
+  initiatedBy: text("initiated_by").notNull(),
+  status: text("status").notNull().default("pending"),
+  resultMessage: text("result_message"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertMaintenanceLogSchema = createInsertSchema(maintenanceLogs).omit({ id: true, createdAt: true });
+
 export const insertSuperAdminSchema = createInsertSchema(superAdmins).omit({ id: true, createdAt: true, lastLoginAt: true });
 export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: true, createdAt: true, lastHealthCheck: true, lastHealthStatus: true, uptimePercent: true });
 export const insertFacilityHealthLogSchema = createInsertSchema(facilityHealthLogs).omit({ id: true, checkedAt: true });
@@ -259,3 +272,5 @@ export type Facility = typeof facilities.$inferSelect;
 export type InsertFacility = z.infer<typeof insertFacilitySchema>;
 export type FacilityHealthLog = typeof facilityHealthLogs.$inferSelect;
 export type InsertFacilityHealthLog = z.infer<typeof insertFacilityHealthLogSchema>;
+export type MaintenanceLog = typeof maintenanceLogs.$inferSelect;
+export type InsertMaintenanceLog = z.infer<typeof insertMaintenanceLogSchema>;

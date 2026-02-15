@@ -34,6 +34,14 @@ export function invalidatePersonaCache(residentId: number): void {
   personaCache.delete(residentId);
 }
 
+export function clearPersonaCache(): void {
+  personaCache.clear();
+}
+
+export function resetClient(): void {
+  _ai = null;
+}
+
 function buildPersonaPrompt(resident: Resident): string {
   const persona = resident.digitalTwinPersona as any;
   const intake = resident.intakeInterviewData as any;

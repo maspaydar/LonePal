@@ -24,6 +24,15 @@ import {
   KeyRound,
   X,
   CircleDot,
+  Wrench,
+  FileText,
+  RotateCcw,
+  Database,
+  Terminal,
+  Download,
+  Cpu,
+  HardDrive,
+  Clock,
 } from "lucide-react";
 import {
   Dialog,
@@ -109,6 +118,18 @@ export default function SuperAdminDashboard() {
   const [totpData, setTotpData] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [verifyCode, setVerifyCode] = useState("");
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
+
+  const [showMaintenance, setShowMaintenance] = useState(false);
+  const [maintenanceFacility, setMaintenanceFacility] = useState<Facility | null>(null);
+  const [maintenanceTab, setMaintenanceTab] = useState<"logs" | "services" | "cache" | "diagnostics">("logs");
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const [logFileName, setLogFileName] = useState<string>("");
+  const [availableLogFiles, setAvailableLogFiles] = useState<string[]>([]);
+  const [selectedLogFile, setSelectedLogFile] = useState("");
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [diagnosticsData, setDiagnosticsData] = useState<any>(null);
+  const [isLoadingDiagnostics, setIsLoadingDiagnostics] = useState(false);
+  const [maintenanceHistory, setMaintenanceHistory] = useState<any[]>([]);
 
   const [newFacility, setNewFacility] = useState({
     facilityId: "",
@@ -249,6 +270,110 @@ export default function SuperAdminDashboard() {
     localStorage.removeItem("superAdmin");
     setLocation("/super-admin");
   }
+
+  async function openMaintenance(facility: Facility) {
+    setMaintenanceFacility(facility);
+    setMaintenanceTab("logs");
+    setLogLines([]);
+    setLogFileName("");
+    setAvailableLogFiles([]);
+    setSelectedLogFile("");
+    setDiagnosticsData(null);
+    setMaintenanceHistory([]);
+    setShowMaintenance(true);
+
+    try {
+      const res = await fetch(`/api/super-admin/facilities/${facility.id}/maintenance-logs?limit=20`, {
+        headers: authHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMaintenanceHistory(data);
+      }
+    } catch {}
+  }
+
+  async function fetchLogs(facilityId: number, logFile?: string) {
+    setIsLoadingLogs(true);
+    try {
+      const res = await fetch(`/api/super-admin/facilities/${facilityId}/maintenance/logs`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ logFile: logFile || undefined, lines: 100 }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Error", description: data.error, variant: "destructive" });
+        return;
+      }
+      setLogLines(data.lines || []);
+      setLogFileName(data.file || "");
+      setAvailableLogFiles(data.availableFiles || []);
+    } catch {
+      toast({ title: "Error", description: "Failed to fetch logs", variant: "destructive" });
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }
+
+  async function fetchDiagnostics(facilityId: number) {
+    setIsLoadingDiagnostics(true);
+    try {
+      const res = await fetch(`/api/super-admin/facilities/${facilityId}/maintenance/diagnostics`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Error", description: data.error, variant: "destructive" });
+        return;
+      }
+      setDiagnosticsData(data);
+    } catch {
+      toast({ title: "Error", description: "Failed to fetch diagnostics", variant: "destructive" });
+    } finally {
+      setIsLoadingDiagnostics(false);
+    }
+  }
+
+  const restartServiceMutation = useMutation({
+    mutationFn: async ({ facilityId, service }: { facilityId: number; service: string }) => {
+      const res = await fetch(`/api/super-admin/facilities/${facilityId}/maintenance/restart-service`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ service }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      toast({ title: "Service Restarted", description: data.result });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Restart Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const clearCacheMutation = useMutation({
+    mutationFn: async ({ facilityId, cache }: { facilityId: number; cache: string }) => {
+      const res = await fetch(`/api/super-admin/facilities/${facilityId}/maintenance/clear-cache`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ cache }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      toast({ title: "Cache Cleared", description: data.result || "All caches cleared" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Cache Clear Failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const admin = JSON.parse(localStorage.getItem("superAdmin") || "{}");
 
@@ -509,6 +634,15 @@ export default function SuperAdminDashboard() {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => openMaintenance(facility)}
+                    data-testid={`button-maintenance-${facility.id}`}
+                  >
+                    <Wrench className="w-3 h-3 mr-1" />
+                    Remote Fix
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => {
                       setSelectedFacility(facility);
                       setShowConfigDialog(true);
@@ -674,6 +808,265 @@ export default function SuperAdminDashboard() {
                 <KeyRound className="w-4 h-4 mr-1" />
                 {isVerifying2FA ? "Verifying..." : "Verify and Enable 2FA"}
               </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMaintenance} onOpenChange={setShowMaintenance}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wrench className="w-5 h-5" />
+              Remote Diagnostics - {maintenanceFacility?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Remote maintenance tunnel for {maintenanceFacility?.facilityId}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex gap-1 flex-wrap">
+            {(["logs", "services", "cache", "diagnostics"] as const).map((tab) => (
+              <Button
+                key={tab}
+                variant={maintenanceTab === tab ? "default" : "outline"}
+                size="sm"
+                onClick={() => setMaintenanceTab(tab)}
+                data-testid={`button-tab-${tab}`}
+              >
+                {tab === "logs" && <FileText className="w-3 h-3 mr-1" />}
+                {tab === "services" && <RotateCcw className="w-3 h-3 mr-1" />}
+                {tab === "cache" && <Database className="w-3 h-3 mr-1" />}
+                {tab === "diagnostics" && <Cpu className="w-3 h-3 mr-1" />}
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </Button>
+            ))}
+          </div>
+
+          {maintenanceTab === "logs" && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  onClick={() => maintenanceFacility && fetchLogs(maintenanceFacility.id, selectedLogFile || undefined)}
+                  disabled={isLoadingLogs}
+                  data-testid="button-fetch-logs"
+                >
+                  <Download className="w-3 h-3 mr-1" />
+                  {isLoadingLogs ? "Loading..." : "Fetch Logs"}
+                </Button>
+                {availableLogFiles.length > 0 && (
+                  <Select value={selectedLogFile} onValueChange={(v) => setSelectedLogFile(v)}>
+                    <SelectTrigger className="w-auto" data-testid="select-log-file">
+                      <SelectValue placeholder="Latest log file" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableLogFiles.map((f) => (
+                        <SelectItem key={f} value={f}>{f}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              {logFileName && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline">{logFileName}</Badge>
+                  <span className="text-xs text-muted-foreground">{logLines.length} lines</span>
+                </div>
+              )}
+              <div
+                className="bg-muted rounded-md p-3 font-mono text-xs max-h-64 overflow-auto"
+                data-testid="container-log-viewer"
+              >
+                {logLines.length === 0 ? (
+                  <p className="text-muted-foreground">No logs loaded. Click "Fetch Logs" to retrieve facility logs.</p>
+                ) : (
+                  logLines.map((line, i) => {
+                    let parsed: any = null;
+                    try { parsed = JSON.parse(line); } catch {}
+                    const levelColor = parsed?.level === "ERROR"
+                      ? "text-red-500"
+                      : parsed?.level === "WARN"
+                        ? "text-amber-500"
+                        : "text-foreground";
+                    return (
+                      <div key={i} className={`whitespace-pre-wrap break-all ${levelColor}`} data-testid={`text-log-line-${i}`}>
+                        {parsed
+                          ? `[${parsed.timestamp?.slice(11, 19) || ""}] [${parsed.level}] ${parsed.source}: ${parsed.message}`
+                          : line}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {maintenanceTab === "services" && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Restart individual services on the facility backend without a full redeploy.
+              </p>
+              {[
+                { id: "ai-engine", label: "AI Engine", desc: "Reset Gemini client connection", icon: Cpu },
+                { id: "inactivity-monitor", label: "Inactivity Monitor", desc: "Restart monitoring timers", icon: Clock },
+                { id: "websocket", label: "WebSocket", desc: "Refresh client connections", icon: Wifi },
+              ].map((svc) => (
+                <Card key={svc.id}>
+                  <CardContent className="flex items-center justify-between gap-3 py-3 px-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <svc.icon className="w-5 h-5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{svc.label}</p>
+                        <p className="text-xs text-muted-foreground">{svc.desc}</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={restartServiceMutation.isPending}
+                      onClick={() => maintenanceFacility && restartServiceMutation.mutate({
+                        facilityId: maintenanceFacility.id,
+                        service: svc.id,
+                      })}
+                      data-testid={`button-restart-${svc.id}`}
+                    >
+                      <RotateCcw className={`w-3 h-3 mr-1 ${restartServiceMutation.isPending ? "animate-spin" : ""}`} />
+                      Restart
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {maintenanceTab === "cache" && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Clear specific caches or all caches on the facility backend.
+              </p>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={clearCacheMutation.isPending}
+                onClick={() => maintenanceFacility && clearCacheMutation.mutate({
+                  facilityId: maintenanceFacility.id,
+                  cache: "all",
+                })}
+                data-testid="button-clear-all-cache"
+              >
+                <Trash2 className="w-3 h-3 mr-1" />
+                {clearCacheMutation.isPending ? "Clearing..." : "Clear All Caches"}
+              </Button>
+              {[
+                { id: "persona-cache", label: "AI Persona Cache", desc: "In-memory persona prompts for residents", icon: Cpu },
+                { id: "query-cache", label: "Query Cache", desc: "Application query results", icon: Database },
+                { id: "temp-files", label: "Temporary Files", desc: "Files in data/tmp directory", icon: HardDrive },
+              ].map((cache) => (
+                <Card key={cache.id}>
+                  <CardContent className="flex items-center justify-between gap-3 py-3 px-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <cache.icon className="w-5 h-5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{cache.label}</p>
+                        <p className="text-xs text-muted-foreground">{cache.desc}</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={clearCacheMutation.isPending}
+                      onClick={() => maintenanceFacility && clearCacheMutation.mutate({
+                        facilityId: maintenanceFacility.id,
+                        cache: cache.id,
+                      })}
+                      data-testid={`button-clear-${cache.id}`}
+                    >
+                      <Trash2 className="w-3 h-3 mr-1" />
+                      Clear
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {maintenanceTab === "diagnostics" && (
+            <div className="space-y-3">
+              <Button
+                size="sm"
+                onClick={() => maintenanceFacility && fetchDiagnostics(maintenanceFacility.id)}
+                disabled={isLoadingDiagnostics}
+                data-testid="button-fetch-diagnostics"
+              >
+                <Cpu className="w-3 h-3 mr-1" />
+                {isLoadingDiagnostics ? "Loading..." : "Run Diagnostics"}
+              </Button>
+              {diagnosticsData && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Card>
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-muted-foreground">Uptime</p>
+                      <p className="text-lg font-bold" data-testid="text-diag-uptime">
+                        {Math.floor(diagnosticsData.uptime / 3600)}h {Math.floor((diagnosticsData.uptime % 3600) / 60)}m
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-muted-foreground">Memory (Heap)</p>
+                      <p className="text-lg font-bold" data-testid="text-diag-memory">
+                        {diagnosticsData.memoryUsage?.heapUsed}MB / {diagnosticsData.memoryUsage?.heapTotal}MB
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-muted-foreground">Node Version</p>
+                      <p className="text-sm font-medium" data-testid="text-diag-node">{diagnosticsData.nodeVersion}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-muted-foreground">Log Files</p>
+                      <p className="text-lg font-bold" data-testid="text-diag-logs">{diagnosticsData.logFileCount}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-muted-foreground">RSS Memory</p>
+                      <p className="text-lg font-bold">{diagnosticsData.memoryUsage?.rss}MB</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="py-3 px-4">
+                      <p className="text-xs text-muted-foreground">PID</p>
+                      <p className="text-sm font-medium">{diagnosticsData.pid}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
+          )}
+
+          {maintenanceHistory.length > 0 && (
+            <div className="space-y-2 pt-2 border-t">
+              <p className="text-xs font-medium text-muted-foreground">Recent Maintenance Activity</p>
+              <div className="space-y-1 max-h-32 overflow-auto">
+                {maintenanceHistory.map((log: any) => (
+                  <div key={log.id} className="flex items-center justify-between gap-2 text-xs" data-testid={`text-maint-log-${log.id}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge variant={log.status === "completed" ? "default" : "destructive"} className="text-[10px]">
+                        {log.action}
+                      </Badge>
+                      <span className="text-muted-foreground truncate">{log.command}</span>
+                    </div>
+                    <span className="text-muted-foreground shrink-0">
+                      {new Date(log.createdAt).toLocaleTimeString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </DialogContent>

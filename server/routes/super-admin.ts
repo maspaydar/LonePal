@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import bcrypt from "bcryptjs";
 import { TOTP, generateSecret, generateURI, verifySync } from "otplib";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import {
   superAdminLoginSchema,
   superAdminVerify2FASchema,
@@ -379,6 +380,226 @@ router.post("/facilities/check-health", superAdminAuthMiddleware, async (_req, r
     res.json({ checked: results.length, results });
   } catch (error) {
     res.status(500).json({ error: "Health check failed" });
+  }
+});
+
+function signMaintenancePayload(payload: Record<string, any>): { signature: string; timestamp: number } {
+  const timestamp = Date.now();
+  const body = JSON.stringify({ ...payload, timestamp });
+  const signature = crypto
+    .createHmac("sha256", getJwtSecret())
+    .update(body)
+    .digest("hex");
+  return { signature, timestamp };
+}
+
+async function proxyMaintenanceRequest(
+  facility: { installationUrl: string | null; facilityId: string; id: number },
+  endpoint: string,
+  payload: Record<string, any>,
+  adminEmail: string,
+) {
+  if (!facility.installationUrl) {
+    throw new Error("Facility has no installation URL configured");
+  }
+
+  const { signature, timestamp } = signMaintenancePayload(payload);
+
+  const response = await fetch(`${facility.installationUrl}/api/maintenance/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-maintenance-signature": signature,
+      "x-maintenance-timestamp": String(timestamp),
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `Facility responded with ${response.status}`);
+  }
+
+  return data;
+}
+
+router.post("/facilities/:id/maintenance/logs", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facility = await storage.getFacility(Number(req.params.id));
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    const { logFile, lines = 100 } = req.body;
+    const payload = { logFile, lines };
+
+    const maintenanceLog = await storage.createMaintenanceLog({
+      facilityId: facility.id,
+      action: "log_retrieval",
+      command: logFile || "latest",
+      initiatedBy: req.superAdmin!.email,
+      status: "pending",
+    });
+
+    try {
+      const data = await proxyMaintenanceRequest(facility, "logs", payload, req.superAdmin!.email);
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "completed",
+        resultMessage: `Retrieved ${data.lines?.length || 0} lines from ${data.file || "unknown"}`,
+      });
+      res.json(data);
+    } catch (err: any) {
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "failed",
+        resultMessage: err.message,
+      });
+      res.status(502).json({ error: err.message });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to retrieve logs" });
+  }
+});
+
+router.post("/facilities/:id/maintenance/list-logs", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facility = await storage.getFacility(Number(req.params.id));
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    const maintenanceLog = await storage.createMaintenanceLog({
+      facilityId: facility.id,
+      action: "list_logs",
+      command: "list",
+      initiatedBy: req.superAdmin!.email,
+      status: "pending",
+    });
+
+    try {
+      const data = await proxyMaintenanceRequest(facility, "list-logs", {}, req.superAdmin!.email);
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "completed",
+        resultMessage: `Listed ${data.files?.length || 0} log files`,
+      });
+      res.json(data);
+    } catch (err: any) {
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "failed",
+        resultMessage: err.message,
+      });
+      res.status(502).json({ error: err.message });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to list logs" });
+  }
+});
+
+router.post("/facilities/:id/maintenance/restart-service", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facility = await storage.getFacility(Number(req.params.id));
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    const { service } = req.body;
+    const payload = { service };
+
+    const maintenanceLog = await storage.createMaintenanceLog({
+      facilityId: facility.id,
+      action: "service_restart",
+      command: service || "list",
+      initiatedBy: req.superAdmin!.email,
+      status: "pending",
+    });
+
+    try {
+      const data = await proxyMaintenanceRequest(facility, "restart-service", payload, req.superAdmin!.email);
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "completed",
+        resultMessage: data.result || JSON.stringify(data),
+      });
+      res.json(data);
+    } catch (err: any) {
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "failed",
+        resultMessage: err.message,
+      });
+      res.status(502).json({ error: err.message });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Service restart failed" });
+  }
+});
+
+router.post("/facilities/:id/maintenance/clear-cache", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facility = await storage.getFacility(Number(req.params.id));
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    const { cache } = req.body;
+    const payload = { cache };
+
+    const maintenanceLog = await storage.createMaintenanceLog({
+      facilityId: facility.id,
+      action: "cache_clear",
+      command: cache || "list",
+      initiatedBy: req.superAdmin!.email,
+      status: "pending",
+    });
+
+    try {
+      const data = await proxyMaintenanceRequest(facility, "clear-cache", payload, req.superAdmin!.email);
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "completed",
+        resultMessage: data.result || JSON.stringify(data),
+      });
+      res.json(data);
+    } catch (err: any) {
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "failed",
+        resultMessage: err.message,
+      });
+      res.status(502).json({ error: err.message });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Cache clear failed" });
+  }
+});
+
+router.post("/facilities/:id/maintenance/diagnostics", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facility = await storage.getFacility(Number(req.params.id));
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    const maintenanceLog = await storage.createMaintenanceLog({
+      facilityId: facility.id,
+      action: "diagnostics",
+      command: "system_info",
+      initiatedBy: req.superAdmin!.email,
+      status: "pending",
+    });
+
+    try {
+      const data = await proxyMaintenanceRequest(facility, "diagnostics", {}, req.superAdmin!.email);
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "completed",
+        resultMessage: `Uptime: ${Math.floor(data.uptime / 3600)}h, Heap: ${data.memoryUsage?.heapUsed}MB`,
+      });
+      res.json(data);
+    } catch (err: any) {
+      await storage.updateMaintenanceLog(maintenanceLog.id, {
+        status: "failed",
+        resultMessage: err.message,
+      });
+      res.status(502).json({ error: err.message });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Diagnostics failed" });
+  }
+});
+
+router.get("/facilities/:id/maintenance-logs", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const logs = await storage.getMaintenanceLogs(Number(req.params.id), limit);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to get maintenance logs" });
   }
 });
 

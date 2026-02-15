@@ -17,6 +17,7 @@ import { GoogleGenAI } from "@google/genai";
 import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth";
 import superAdminRouter from "./routes/super-admin";
+import maintenanceRouter from "./routes/maintenance";
 
 let wss: WebSocketServer;
 let _insightsAI: GoogleGenAI | null = null;
@@ -50,6 +51,7 @@ export async function registerRoutes(
   });
 
   app.use("/api/super-admin", superAdminRouter);
+  app.use("/api/maintenance", maintenanceRouter);
 
   app.get("/api/health", async (_req, res) => {
     try {
