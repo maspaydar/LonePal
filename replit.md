@@ -4,6 +4,20 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-15**: Phase 3 Smart Speaker & Mobile Integration
+  - Smart Speaker Audio Gateway service (`server/services/speaker-gateway.ts`): pushCheckIn(), activateListenMode(), handleSpeakerResponse()
+  - Safety alerts push AI-generated audio check-ins to unit's Google Home speaker via gateway
+  - "Listen Mode" activates 10-second microphone capture after check-in, processes voice responses
+  - Quiet Hours support: respects user preference to skip audio during configured hours
+  - Speaker webhook at POST /api/speaker/webhook/response for Google Home Action callbacks
+  - speaker_events table logs all push/listen/response/timeout events per unit
+  - Mobile Preferences API: GET/POST /api/mobile/preferences for aiVerbosity, quietHours, voiceTone
+  - user_preferences table (residentId, aiVerbosity, quietHoursStart, quietHoursEnd, preferredVoiceTone)
+  - AI engine updated: buildPersonaPrompt() incorporates verbosity and tone preferences from user_preferences
+  - Device Pairing: Admin generates QR pairing codes per unit (POST /api/entities/:entityId/units/:unitId/pairing-code)
+  - device_pairing_codes table (code, unitId, entityId, expiresAt, isUsed, usedByResidentId)
+  - Mobile pairing endpoint POST /api/mobile/pair: validates code, links resident to unit
+  - Units page UI: Push Check-In button per speaker, speaker event log viewer, pairing code generator with copy/expiry
 - **2026-02-15**: Phase 2 Per-Unit Hardware & Device Mapping
   - New `units` table: unitIdentifier, entityId, smartSpeakerId, floor, label, isActive
   - Residents and sensors now have unitId FK for unit assignment

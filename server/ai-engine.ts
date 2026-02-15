@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { storage } from "./storage";
-import type { Resident, ScenarioConfig, ActiveScenario } from "@shared/schema";
+import type { Resident, ScenarioConfig, ActiveScenario, UserPreferences } from "@shared/schema";
 import { log } from "./index";
 
 let _ai: GoogleGenAI | null = null;
@@ -36,12 +36,13 @@ function getModelName() {
 const personaCache = new Map<number, { prompt: string; cachedAt: number }>();
 const PERSONA_CACHE_TTL = 10 * 60 * 1000;
 
-function getCachedPersonaPrompt(resident: Resident): string {
+async function getCachedPersonaPrompt(resident: Resident): Promise<string> {
   const cached = personaCache.get(resident.id);
   if (cached && Date.now() - cached.cachedAt < PERSONA_CACHE_TTL) {
     return cached.prompt;
   }
-  const prompt = buildPersonaPrompt(resident);
+  const prefs = await storage.getUserPreferences(resident.id);
+  const prompt = buildPersonaPrompt(resident, prefs);
   personaCache.set(resident.id, { prompt, cachedAt: Date.now() });
   return prompt;
 }
@@ -58,19 +59,41 @@ export function resetClient(): void {
   _ai = null;
 }
 
-function buildPersonaPrompt(resident: Resident): string {
+function getVerbosityInstruction(verbosity: string): string {
+  switch (verbosity) {
+    case "short": return "Keep responses very brief (1-2 sentences). Be concise and to the point.";
+    case "long": return "Give detailed, thorough responses (4-6 sentences). Elaborate and engage in depth.";
+    default: return "Keep responses moderate in length (2-3 sentences). Be warm but concise.";
+  }
+}
+
+function getToneInstruction(tone: string): string {
+  switch (tone) {
+    case "professional": return "Use a professional, respectful tone. Be clear and composed.";
+    case "friendly": return "Use a casual, friendly tone. Be upbeat and conversational.";
+    case "calm": return "Use a calm, soothing tone. Speak gently and reassuringly.";
+    default: return "Use a nurturing, warm tone. Be caring and supportive like a trusted friend.";
+  }
+}
+
+function buildPersonaPrompt(resident: Resident, prefs?: UserPreferences | null): string {
   const persona = resident.digitalTwinPersona as any;
   const intake = resident.intakeInterviewData as any;
   const name = resident.preferredName || resident.firstName;
 
   let prompt = `You are a caring AI companion for ${name}, a senior resident. `;
 
+  if (prefs) {
+    prompt += `${getVerbosityInstruction(prefs.aiVerbosity)} `;
+    prompt += `${getToneInstruction(prefs.preferredVoiceTone)} `;
+  }
+
   if (resident.communicationStyle) {
     prompt += `Their communication style: ${resident.communicationStyle}. `;
   }
 
   if (persona) {
-    if (persona.tone) prompt += `Speak in a ${persona.tone} tone. `;
+    if (persona.tone && !prefs) prompt += `Speak in a ${persona.tone} tone. `;
     if (persona.topics?.length) prompt += `Topics they enjoy: ${persona.topics.join(", ")}. `;
     if (persona.avoidTopics?.length) prompt += `Avoid mentioning: ${persona.avoidTopics.join(", ")}. `;
   }
@@ -189,7 +212,7 @@ export async function generateAICheckIn(
       return getPlaceholderResponse(resident, scenarioType, escalationLevel);
     }
 
-    const personaPrompt = getCachedPersonaPrompt(resident);
+    const personaPrompt = await getCachedPersonaPrompt(resident);
     const scenarioPrompt = getScenarioPrompt(scenarioType, escalationLevel, resident, triggerLocation);
 
     const systemInstruction = `${personaPrompt}\n\nCurrent situation: ${scenarioPrompt}\n\nIMPORTANT: Keep your response concise (2-3 sentences max). Be natural and human-like. Do not use clinical language.`;
@@ -244,7 +267,7 @@ export async function processResidentResponse(
       };
     }
 
-    const personaPrompt = getCachedPersonaPrompt(resident);
+    const personaPrompt = await getCachedPersonaPrompt(resident);
     const ctx = buildConversationContext(conversationHistory);
 
     const analysisPrompt = `${personaPrompt}
@@ -317,7 +340,7 @@ export async function streamCompanionResponse(
     return { fullResponse: fallback, isResolved: true, shouldEscalate: false };
   }
 
-  const personaPrompt = getCachedPersonaPrompt(resident);
+  const personaPrompt = await getCachedPersonaPrompt(resident);
   const name = resident.preferredName || resident.firstName;
 
   const systemInstruction = `${personaPrompt}

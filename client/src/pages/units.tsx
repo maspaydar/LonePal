@@ -30,6 +30,11 @@ import {
   LinkIcon,
   Unlink,
   Layers,
+  Volume2,
+  QrCode,
+  Copy,
+  Clock,
+  Mic,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
@@ -67,6 +72,23 @@ interface UnitData {
   resident: UnitResident | null;
 }
 
+interface SpeakerEvent {
+  id: number;
+  eventType: string;
+  message: string | null;
+  status: string;
+  responseText: string | null;
+  createdAt: string;
+}
+
+interface PairingCode {
+  id: number;
+  code: string;
+  unitId: number;
+  isUsed: boolean;
+  expiresAt: string;
+}
+
 export default function Units() {
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -76,6 +98,8 @@ export default function Units() {
   const [floor, setFloor] = useState("");
   const [assignResidentUnit, setAssignResidentUnit] = useState<number | null>(null);
   const [assignSensorUnit, setAssignSensorUnit] = useState<number | null>(null);
+  const [speakerEventsUnit, setSpeakerEventsUnit] = useState<number | null>(null);
+  const [pairingUnit, setPairingUnit] = useState<number | null>(null);
 
   const { data: units, isLoading } = useQuery<UnitData[]>({
     queryKey: ["/api/entities/1/units"],
@@ -87,6 +111,18 @@ export default function Units() {
 
   const { data: allSensors } = useQuery<UnitSensor[]>({
     queryKey: ["/api/entities/1/sensors"],
+  });
+
+  const { data: speakerEvents } = useQuery<SpeakerEvent[]>({
+    queryKey: ["/api/entities/1/units", speakerEventsUnit, "speaker/events"],
+    queryFn: () => fetch(`/api/entities/1/units/${speakerEventsUnit}/speaker/events?limit=10`).then(r => r.json()),
+    enabled: !!speakerEventsUnit,
+  });
+
+  const { data: pairingCodes } = useQuery<PairingCode[]>({
+    queryKey: ["/api/entities/1/units", pairingUnit, "pairing-codes"],
+    queryFn: () => fetch(`/api/entities/1/units/${pairingUnit}/pairing-codes`).then(r => r.json()),
+    enabled: !!pairingUnit,
   });
 
   const createMutation = useMutation({
@@ -153,8 +189,37 @@ export default function Units() {
     },
   });
 
+  const pushCheckInMutation = useMutation({
+    mutationFn: (unitId: number) =>
+      apiRequest("POST", `/api/entities/1/units/${unitId}/speaker/check-in`, {
+        scenarioType: "inactivity_gentle",
+        escalationLevel: 0,
+      }),
+    onSuccess: (_, unitId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units", unitId, "speaker/events"] });
+      toast({ title: "Check-in pushed to speaker" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Check-in failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const generatePairingMutation = useMutation({
+    mutationFn: (unitId: number) =>
+      apiRequest("POST", `/api/entities/1/units/${unitId}/pairing-code`),
+    onSuccess: (_, unitId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units", unitId, "pairing-codes"] });
+      toast({ title: "Pairing code generated" });
+    },
+  });
+
   const unassignedResidents = allResidents?.filter((r) => !r.unitId) || [];
   const unassignedSensors = allSensors?.filter((s) => !s.unitId) || [];
+
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied to clipboard" });
+  }
 
   if (isLoading) {
     return (
@@ -377,16 +442,112 @@ export default function Units() {
                 </div>
 
                 {unit.smartSpeakerId && (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Speaker className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span className="text-sm font-medium">Smart Speaker</span>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Speaker className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-sm font-medium">Smart Speaker</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => pushCheckInMutation.mutate(unit.id)}
+                          disabled={!unit.resident || pushCheckInMutation.isPending}
+                          title="Push check-in to speaker"
+                          data-testid={`button-push-checkin-${unit.id}`}
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setSpeakerEventsUnit(speakerEventsUnit === unit.id ? null : unit.id)}
+                          title="View speaker events"
+                          data-testid={`button-speaker-events-${unit.id}`}
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                     </div>
                     <p className="text-xs text-muted-foreground pl-5" data-testid={`text-speaker-${unit.id}`}>
                       {unit.smartSpeakerId}
                     </p>
+
+                    {speakerEventsUnit === unit.id && speakerEvents && (
+                      <div className="pl-5 space-y-1 max-h-36 overflow-y-auto" data-testid={`speaker-events-list-${unit.id}`}>
+                        {speakerEvents.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No speaker events yet</p>
+                        ) : (
+                          speakerEvents.map((evt) => (
+                            <div key={evt.id} className="flex items-start gap-2 text-xs" data-testid={`speaker-event-${evt.id}`}>
+                              <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                                {evt.eventType.replace(/_/g, " ")}
+                              </Badge>
+                              <span className="text-muted-foreground truncate">
+                                {evt.message?.slice(0, 60) || evt.status}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
+
+                <div className="space-y-2 pt-1 border-t">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <QrCode className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-sm font-medium">Device Pairing</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setPairingUnit(pairingUnit === unit.id ? null : unit.id);
+                        if (pairingUnit !== unit.id) {
+                          generatePairingMutation.mutate(unit.id);
+                        }
+                      }}
+                      data-testid={`button-pairing-${unit.id}`}
+                    >
+                      <QrCode className="w-3.5 h-3.5 mr-1" />
+                      {pairingUnit === unit.id ? "Hide" : "Generate Code"}
+                    </Button>
+                  </div>
+
+                  {pairingUnit === unit.id && pairingCodes && (
+                    <div className="pl-5 space-y-2" data-testid={`pairing-codes-${unit.id}`}>
+                      {pairingCodes.filter(c => !c.isUsed && new Date(c.expiresAt) > new Date()).slice(0, 3).map((code) => (
+                        <div key={code.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-semibold tracking-wider" data-testid={`text-pairing-code-${code.id}`}>
+                              {code.code}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <Clock className="w-2.5 h-2.5" />
+                              {Math.max(0, Math.round((new Date(code.expiresAt).getTime() - Date.now()) / 60000))}m
+                            </span>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => copyToClipboard(code.code)}
+                              data-testid={`button-copy-code-${code.id}`}
+                            >
+                              <Copy className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      {pairingCodes.filter(c => !c.isUsed && new Date(c.expiresAt) > new Date()).length === 0 && (
+                        <p className="text-xs text-muted-foreground">No active pairing codes</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}

@@ -18,6 +18,9 @@ import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth";
 import superAdminRouter from "./routes/super-admin";
 import maintenanceRouter from "./routes/maintenance";
+import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions } from "./services/speaker-gateway";
+import { insertUserPreferencesSchema, insertDevicePairingCodeSchema } from "@shared/schema";
+import crypto from "crypto";
 
 let wss: WebSocketServer;
 let _insightsAI: GoogleGenAI | null = null;
@@ -1175,6 +1178,182 @@ export async function registerRoutes(
     } catch (error) {
       log(`Mobile create conversation error: ${error}`, "mobile");
       res.status(500).json({ error: "Failed to create conversation" });
+    }
+  });
+
+  // --- Smart Speaker Gateway ---
+  app.post("/api/entities/:entityId/units/:unitId/speaker/check-in", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const unitId = Number(req.params.unitId);
+      const { scenarioType, escalationLevel, scenarioId, triggerLocation, withListenMode } = req.body;
+
+      const unit = await storage.getUnit(unitId);
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
+      if (!unit.smartSpeakerId) return res.status(400).json({ error: "No smart speaker configured for this unit" });
+
+      const resident = await storage.getResidentByUnit(unitId);
+      if (!resident) return res.status(400).json({ error: "No resident assigned to this unit" });
+
+      if (withListenMode) {
+        const result = await pushCheckInWithListenMode(
+          resident, unit,
+          scenarioType || "inactivity_gentle",
+          escalationLevel || 0,
+          scenarioId, triggerLocation
+        );
+        res.json(result);
+      } else {
+        const result = await pushCheckIn(
+          resident, unit,
+          scenarioType || "inactivity_gentle",
+          escalationLevel || 0,
+          scenarioId, triggerLocation
+        );
+        res.json(result);
+      }
+    } catch (error: any) {
+      log(`Speaker check-in error: ${error}`, "speaker-gateway");
+      res.status(500).json({ error: error.message || "Failed to push check-in" });
+    }
+  });
+
+  app.post("/api/speaker/webhook/response", async (req, res) => {
+    try {
+      const { speakerId, responseText } = req.body;
+      if (!speakerId || !responseText) {
+        return res.status(400).json({ error: "speakerId and responseText are required" });
+      }
+      const result = await handleSpeakerResponse(speakerId, responseText);
+      res.json(result);
+    } catch (error: any) {
+      log(`Speaker webhook error: ${error}`, "speaker-gateway");
+      res.status(500).json({ error: "Failed to process speaker response" });
+    }
+  });
+
+  app.get("/api/entities/:entityId/units/:unitId/speaker/events", async (req, res) => {
+    try {
+      const unitId = Number(req.params.unitId);
+      const limit = Number(req.query.limit) || 20;
+      const events = await storage.getSpeakerEvents(unitId, limit);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch speaker events" });
+    }
+  });
+
+  app.get("/api/speaker/sessions", async (_req, res) => {
+    res.json(getActiveSessions());
+  });
+
+  // --- Mobile Preferences API ---
+  app.get("/api/mobile/preferences", mobileAuthMiddleware, async (req, res) => {
+    try {
+      const { residentId } = req.mobileAuth!;
+      const prefs = await storage.getUserPreferences(residentId);
+      if (!prefs) {
+        return res.json({
+          residentId,
+          aiVerbosity: "medium",
+          quietHoursStart: null,
+          quietHoursEnd: null,
+          preferredVoiceTone: "nurturing",
+        });
+      }
+      res.json(prefs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch preferences" });
+    }
+  });
+
+  app.post("/api/mobile/preferences", mobileAuthMiddleware, async (req, res) => {
+    try {
+      const { residentId, entityId } = req.mobileAuth!;
+      const { aiVerbosity, quietHoursStart, quietHoursEnd, preferredVoiceTone } = req.body;
+
+      const parsed = insertUserPreferencesSchema.parse({
+        residentId,
+        entityId,
+        aiVerbosity: aiVerbosity || "medium",
+        quietHoursStart: quietHoursStart || null,
+        quietHoursEnd: quietHoursEnd || null,
+        preferredVoiceTone: preferredVoiceTone || "nurturing",
+      });
+
+      const prefs = await storage.upsertUserPreferences(parsed);
+      dailyLogger.info("mobile", `Preferences updated for resident ${residentId}`, { residentId, entityId });
+      res.json(prefs);
+    } catch (error: any) {
+      if (error.name === "ZodError") return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to save preferences" });
+    }
+  });
+
+  // --- Device Pairing ---
+  app.post("/api/entities/:entityId/units/:unitId/pairing-code", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const unitId = Number(req.params.unitId);
+
+      const unit = await storage.getUnit(unitId);
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
+
+      const code = crypto.randomBytes(4).toString("hex").toUpperCase();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      const pairingCode = await storage.createDevicePairingCode({
+        code,
+        unitId,
+        entityId,
+        isUsed: false,
+        usedByResidentId: null,
+        expiresAt,
+      });
+
+      dailyLogger.info("pairing", `Generated pairing code for unit ${unit.unitIdentifier}`, { entityId, unitId, code });
+      res.status(201).json(pairingCode);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to generate pairing code" });
+    }
+  });
+
+  app.get("/api/entities/:entityId/units/:unitId/pairing-codes", async (req, res) => {
+    try {
+      const unitId = Number(req.params.unitId);
+      const codes = await storage.getDevicePairingCodesForUnit(unitId);
+      res.json(codes);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch pairing codes" });
+    }
+  });
+
+  app.post("/api/mobile/pair", mobileAuthMiddleware, async (req, res) => {
+    try {
+      const { residentId, entityId } = req.mobileAuth!;
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ error: "Pairing code is required" });
+
+      const pairingCode = await storage.getDevicePairingCode(code.toUpperCase());
+      if (!pairingCode) return res.status(404).json({ error: "Invalid pairing code" });
+      if (pairingCode.isUsed) return res.status(400).json({ error: "Pairing code already used" });
+      if (new Date(pairingCode.expiresAt) < new Date()) return res.status(400).json({ error: "Pairing code expired" });
+      if (pairingCode.entityId !== entityId) return res.status(403).json({ error: "Pairing code belongs to a different facility" });
+
+      await storage.markPairingCodeUsed(pairingCode.id, residentId);
+      await storage.updateResident(residentId, { unitId: pairingCode.unitId });
+
+      const unit = await storage.getUnit(pairingCode.unitId);
+      dailyLogger.info("pairing", `Resident ${residentId} paired to unit ${unit?.unitIdentifier}`, { residentId, entityId, unitId: pairingCode.unitId });
+
+      res.json({
+        paired: true,
+        unitId: pairingCode.unitId,
+        unitIdentifier: unit?.unitIdentifier,
+        smartSpeakerId: unit?.smartSpeakerId,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to pair device" });
     }
   });
 

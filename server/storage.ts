@@ -16,10 +16,13 @@ import {
   type Facility, type InsertFacility,
   type FacilityHealthLog, type InsertFacilityHealthLog,
   type MaintenanceLog, type InsertMaintenanceLog,
+  type UserPreferences, type InsertUserPreferences,
+  type DevicePairingCode, type InsertDevicePairingCode,
+  type SpeakerEvent, type InsertSpeakerEvent,
   users, entities, residents, sensors, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
-  maintenanceLogs,
+  maintenanceLogs, userPreferences, devicePairingCodes, speakerEvents,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
@@ -118,6 +121,18 @@ export interface IStorage {
   createMaintenanceLog(log: InsertMaintenanceLog): Promise<MaintenanceLog>;
   getMaintenanceLogs(facilityId: number, limit?: number): Promise<MaintenanceLog[]>;
   updateMaintenanceLog(id: number, data: Partial<MaintenanceLog>): Promise<MaintenanceLog | undefined>;
+
+  getUserPreferences(residentId: number): Promise<UserPreferences | undefined>;
+  upsertUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences>;
+
+  createDevicePairingCode(code: InsertDevicePairingCode): Promise<DevicePairingCode>;
+  getDevicePairingCode(code: string): Promise<DevicePairingCode | undefined>;
+  getDevicePairingCodesForUnit(unitId: number): Promise<DevicePairingCode[]>;
+  markPairingCodeUsed(id: number, residentId: number): Promise<void>;
+
+  createSpeakerEvent(event: InsertSpeakerEvent): Promise<SpeakerEvent>;
+  getSpeakerEvents(unitId: number, limit?: number): Promise<SpeakerEvent[]>;
+  updateSpeakerEvent(id: number, data: Partial<SpeakerEvent>): Promise<SpeakerEvent | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -592,6 +607,63 @@ export class DatabaseStorage implements IStorage {
 
   async updateMaintenanceLog(id: number, data: Partial<MaintenanceLog>): Promise<MaintenanceLog | undefined> {
     const [updated] = await db.update(maintenanceLogs).set(data).where(eq(maintenanceLogs.id, id)).returning();
+    return updated;
+  }
+
+  async getUserPreferences(residentId: number): Promise<UserPreferences | undefined> {
+    const [prefs] = await db.select().from(userPreferences).where(eq(userPreferences.residentId, residentId));
+    return prefs;
+  }
+
+  async upsertUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences> {
+    const existing = await this.getUserPreferences(prefs.residentId);
+    if (existing) {
+      const [updated] = await db.update(userPreferences)
+        .set({ ...prefs, updatedAt: new Date() })
+        .where(eq(userPreferences.residentId, prefs.residentId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(userPreferences).values(prefs).returning();
+    return created;
+  }
+
+  async createDevicePairingCode(code: InsertDevicePairingCode): Promise<DevicePairingCode> {
+    const [created] = await db.insert(devicePairingCodes).values(code).returning();
+    return created;
+  }
+
+  async getDevicePairingCode(code: string): Promise<DevicePairingCode | undefined> {
+    const [found] = await db.select().from(devicePairingCodes).where(eq(devicePairingCodes.code, code));
+    return found;
+  }
+
+  async getDevicePairingCodesForUnit(unitId: number): Promise<DevicePairingCode[]> {
+    return db.select().from(devicePairingCodes)
+      .where(eq(devicePairingCodes.unitId, unitId))
+      .orderBy(desc(devicePairingCodes.createdAt));
+  }
+
+  async markPairingCodeUsed(id: number, residentId: number): Promise<void> {
+    await db.update(devicePairingCodes)
+      .set({ isUsed: true, usedByResidentId: residentId })
+      .where(eq(devicePairingCodes.id, id));
+  }
+
+  async createSpeakerEvent(event: InsertSpeakerEvent): Promise<SpeakerEvent> {
+    const [created] = await db.insert(speakerEvents).values(event).returning();
+    return created;
+  }
+
+  async getSpeakerEvents(unitId: number, limit: number = 50): Promise<SpeakerEvent[]> {
+    return db.select().from(speakerEvents)
+      .where(eq(speakerEvents.unitId, unitId))
+      .orderBy(desc(speakerEvents.createdAt))
+      .limit(limit);
+  }
+
+  async updateSpeakerEvent(id: number, data: Partial<SpeakerEvent>): Promise<SpeakerEvent | undefined> {
+    const [updated] = await db.update(speakerEvents).set(data).where(eq(speakerEvents.id, id)).returning();
     return updated;
   }
 }

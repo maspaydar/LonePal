@@ -237,6 +237,51 @@ export const maintenanceLogs = pgTable("maintenance_logs", {
 
 export const insertMaintenanceLogSchema = createInsertSchema(maintenanceLogs).omit({ id: true, createdAt: true });
 
+export const aiVerbosityEnum = pgEnum("ai_verbosity", ["short", "medium", "long"]);
+export const voiceToneEnum = pgEnum("voice_tone", ["nurturing", "professional", "friendly", "calm"]);
+
+export const userPreferences = pgTable("user_preferences", {
+  id: serial("id").primaryKey(),
+  residentId: integer("resident_id").notNull().unique(),
+  entityId: integer("entity_id").notNull(),
+  aiVerbosity: aiVerbosityEnum("ai_verbosity").notNull().default("medium"),
+  quietHoursStart: text("quiet_hours_start"),
+  quietHoursEnd: text("quiet_hours_end"),
+  preferredVoiceTone: voiceToneEnum("preferred_voice_tone").notNull().default("nurturing"),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const devicePairingCodes = pgTable("device_pairing_codes", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  unitId: integer("unit_id").notNull(),
+  entityId: integer("entity_id").notNull(),
+  isUsed: boolean("is_used").notNull().default(false),
+  usedByResidentId: integer("used_by_resident_id"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const speakerEventTypeEnum = pgEnum("speaker_event_type", ["check_in_push", "listen_mode", "response_received", "timeout", "error"]);
+
+export const speakerEvents = pgTable("speaker_events", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").notNull(),
+  unitId: integer("unit_id").notNull(),
+  residentId: integer("resident_id"),
+  smartSpeakerId: text("smart_speaker_id"),
+  eventType: speakerEventTypeEnum("event_type").notNull(),
+  message: text("message"),
+  scenarioId: integer("scenario_id"),
+  status: text("status").notNull().default("pending"),
+  responseText: text("response_text"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({ id: true, updatedAt: true });
+export const insertDevicePairingCodeSchema = createInsertSchema(devicePairingCodes).omit({ id: true, createdAt: true });
+export const insertSpeakerEventSchema = createInsertSchema(speakerEvents).omit({ id: true, createdAt: true });
+
 export const insertSuperAdminSchema = createInsertSchema(superAdmins).omit({ id: true, createdAt: true, lastLoginAt: true });
 export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: true, createdAt: true, lastHealthCheck: true, lastHealthStatus: true, uptimePercent: true });
 export const insertFacilityHealthLogSchema = createInsertSchema(facilityHealthLogs).omit({ id: true, checkedAt: true });
@@ -291,3 +336,9 @@ export type FacilityHealthLog = typeof facilityHealthLogs.$inferSelect;
 export type InsertFacilityHealthLog = z.infer<typeof insertFacilityHealthLogSchema>;
 export type MaintenanceLog = typeof maintenanceLogs.$inferSelect;
 export type InsertMaintenanceLog = z.infer<typeof insertMaintenanceLogSchema>;
+export type UserPreferences = typeof userPreferences.$inferSelect;
+export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
+export type DevicePairingCode = typeof devicePairingCodes.$inferSelect;
+export type InsertDevicePairingCode = z.infer<typeof insertDevicePairingCodeSchema>;
+export type SpeakerEvent = typeof speakerEvents.$inferSelect;
+export type InsertSpeakerEvent = z.infer<typeof insertSpeakerEventSchema>;
