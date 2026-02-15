@@ -21,6 +21,8 @@ import Sensors from "@/pages/sensors";
 import ScenarioConfig from "@/pages/scenario-config";
 import SettingsPage from "@/pages/settings";
 import ConversationDetail from "@/pages/conversation-detail";
+import SuperAdminLogin from "@/pages/super-admin-login";
+import SuperAdminDashboard from "@/pages/super-admin-dashboard";
 
 function AdminRouter() {
   return (
@@ -87,7 +89,13 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
-          <AppLayout />
+          <Switch>
+            <Route path="/super-admin" component={SuperAdminLogin} />
+            <Route path="/super-admin/dashboard" component={SuperAdminDashboard} />
+            <Route>
+              <AppLayout />
+            </Route>
+          </Switch>
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>

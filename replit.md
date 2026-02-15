@@ -4,6 +4,15 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-15**: Phase 7 Super-Admin Command Hub
+  - Super-Admin authentication: email/password login + TOTP two-factor authentication via otplib
+  - JWT-based session with 8h expiry, pending 2FA tokens with 5m expiry
+  - Facility Registry: CRUD API for managing multiple EchoPath facility installations
+  - Remote Configuration: Push config (env vars, API keys) to facilities via POST to their /api/super-admin/receive-config
+  - Health Monitoring: /api/health endpoint on each facility, centralized health check pings all facilities
+  - Super-Admin Dashboard UI at /super-admin with login (2FA support), facility grid with status lights, health check, config push
+  - Database tables: super_admins, facilities, facility_health_logs
+  - Routes mounted at /api/super-admin/* with JWT auth middleware
 - **2026-02-13**: Voice-First Mobile App + Streaming AI
   - Chat screen rebuilt as voice-first interface with large microphone button
   - Audio recording via expo-av, text-to-speech via expo-speech
@@ -81,6 +90,10 @@ Multi-tenant AI-powered safety monitoring system for senior living facilities. I
 - `client/src/components/app-sidebar.tsx` - Navigation sidebar
 - `scripts/onboard.js` - Facility onboarding automation
 - `scripts/simulateMotion.js` - ADT motion sensor simulator
+- `server/routes/super-admin.ts` - Super-Admin API routes (auth, facilities, health)
+- `server/middleware/super-admin-auth.ts` - Super-Admin JWT auth middleware with 2FA
+- `client/src/pages/super-admin-login.tsx` - Super-Admin login page with 2FA support
+- `client/src/pages/super-admin-dashboard.tsx` - Super-Admin facility management dashboard
 - `README.md` - System documentation and guide
 
 ## User Preferences

@@ -167,6 +167,62 @@ export const insertMessageSchema = createInsertSchema(messages).omit({ id: true,
 export const insertCommunityBroadcastSchema = createInsertSchema(communityBroadcasts).omit({ id: true, createdAt: true });
 export const insertMobileTokenSchema = createInsertSchema(mobileTokens).omit({ id: true, createdAt: true });
 
+export const facilityStatusEnum = pgEnum("facility_status", ["active", "inactive", "maintenance", "onboarding"]);
+
+export const superAdmins = pgTable("super_admins", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  fullName: text("full_name").notNull(),
+  totpSecret: text("totp_secret"),
+  totpEnabled: boolean("totp_enabled").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  lastLoginAt: timestamp("last_login_at"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const facilities = pgTable("facilities", {
+  id: serial("id").primaryKey(),
+  facilityId: text("facility_id").notNull().unique(),
+  name: text("name").notNull(),
+  address: text("address"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  installationUrl: text("installation_url"),
+  status: facilityStatusEnum("status").notNull().default("onboarding"),
+  geminiApiKey: text("gemini_api_key"),
+  configJson: jsonb("config_json"),
+  activeResidents: integer("active_residents").default(0),
+  lastHealthCheck: timestamp("last_health_check"),
+  lastHealthStatus: text("last_health_status"),
+  uptimePercent: integer("uptime_percent").default(100),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const facilityHealthLogs = pgTable("facility_health_logs", {
+  id: serial("id").primaryKey(),
+  facilityId: integer("facility_id").notNull(),
+  status: text("status").notNull(),
+  responseTimeMs: integer("response_time_ms"),
+  activeUsers: integer("active_users").default(0),
+  errorMessage: text("error_message"),
+  checkedAt: timestamp("checked_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertSuperAdminSchema = createInsertSchema(superAdmins).omit({ id: true, createdAt: true, lastLoginAt: true });
+export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: true, createdAt: true, lastHealthCheck: true, lastHealthStatus: true, uptimePercent: true });
+export const insertFacilityHealthLogSchema = createInsertSchema(facilityHealthLogs).omit({ id: true, checkedAt: true });
+
+export const superAdminLoginSchema = z.object({
+  email: z.string().email("Valid email required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export const superAdminVerify2FASchema = z.object({
+  email: z.string().email(),
+  token: z.string().length(6, "2FA code must be 6 digits").regex(/^\d+$/, "Code must be digits only"),
+});
+
 export const mobileLoginSchema = z.object({
   anonymousUsername: z.string().min(1, "Username is required"),
   pin: z.string().min(4, "PIN must be at least 4 digits").max(6, "PIN must be at most 6 digits").regex(/^\d+$/, "PIN must contain only digits"),
@@ -197,3 +253,9 @@ export type CommunityBroadcast = typeof communityBroadcasts.$inferSelect;
 export type InsertCommunityBroadcast = z.infer<typeof insertCommunityBroadcastSchema>;
 export type MobileToken = typeof mobileTokens.$inferSelect;
 export type InsertMobileToken = z.infer<typeof insertMobileTokenSchema>;
+export type SuperAdmin = typeof superAdmins.$inferSelect;
+export type InsertSuperAdmin = z.infer<typeof insertSuperAdminSchema>;
+export type Facility = typeof facilities.$inferSelect;
+export type InsertFacility = z.infer<typeof insertFacilitySchema>;
+export type FacilityHealthLog = typeof facilityHealthLogs.$inferSelect;
+export type InsertFacilityHealthLog = z.infer<typeof insertFacilityHealthLogSchema>;

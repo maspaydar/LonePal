@@ -11,9 +11,12 @@ import {
   type Message, type InsertMessage,
   type CommunityBroadcast, type InsertCommunityBroadcast,
   type MobileToken, type InsertMobileToken,
+  type SuperAdmin, type InsertSuperAdmin,
+  type Facility, type InsertFacility,
+  type FacilityHealthLog, type InsertFacilityHealthLog,
   users, entities, residents, sensors, motionEvents,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
-  communityBroadcasts, mobileTokens,
+  communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
@@ -84,6 +87,21 @@ export interface IStorage {
   deactivateMobileToken(id: number): Promise<void>;
 
   seedDemoData(entityId: number): Promise<void>;
+
+  getSuperAdminByEmail(email: string): Promise<SuperAdmin | undefined>;
+  getSuperAdmin(id: number): Promise<SuperAdmin | undefined>;
+  createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin>;
+  updateSuperAdmin(id: number, data: Partial<SuperAdmin>): Promise<SuperAdmin | undefined>;
+
+  getFacilities(): Promise<Facility[]>;
+  getFacility(id: number): Promise<Facility | undefined>;
+  getFacilityByFacilityId(facilityId: string): Promise<Facility | undefined>;
+  createFacility(facility: InsertFacility): Promise<Facility>;
+  updateFacility(id: number, data: Partial<Facility>): Promise<Facility | undefined>;
+  deleteFacility(id: number): Promise<void>;
+
+  createFacilityHealthLog(log: InsertFacilityHealthLog): Promise<FacilityHealthLog>;
+  getFacilityHealthLogs(facilityId: number, limit?: number): Promise<FacilityHealthLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -441,6 +459,66 @@ export class DatabaseStorage implements IStorage {
 
   async deactivateMobileToken(id: number): Promise<void> {
     await db.update(mobileTokens).set({ isActive: false }).where(eq(mobileTokens.id, id));
+  }
+
+  async getSuperAdminByEmail(email: string): Promise<SuperAdmin | undefined> {
+    const [admin] = await db.select().from(superAdmins).where(eq(superAdmins.email, email));
+    return admin;
+  }
+
+  async getSuperAdmin(id: number): Promise<SuperAdmin | undefined> {
+    const [admin] = await db.select().from(superAdmins).where(eq(superAdmins.id, id));
+    return admin;
+  }
+
+  async createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin> {
+    const [created] = await db.insert(superAdmins).values(admin).returning();
+    return created;
+  }
+
+  async updateSuperAdmin(id: number, data: Partial<SuperAdmin>): Promise<SuperAdmin | undefined> {
+    const [updated] = await db.update(superAdmins).set(data as any).where(eq(superAdmins.id, id)).returning();
+    return updated;
+  }
+
+  async getFacilities(): Promise<Facility[]> {
+    return db.select().from(facilities).orderBy(facilities.name);
+  }
+
+  async getFacility(id: number): Promise<Facility | undefined> {
+    const [facility] = await db.select().from(facilities).where(eq(facilities.id, id));
+    return facility;
+  }
+
+  async getFacilityByFacilityId(facilityId: string): Promise<Facility | undefined> {
+    const [facility] = await db.select().from(facilities).where(eq(facilities.facilityId, facilityId));
+    return facility;
+  }
+
+  async createFacility(facility: InsertFacility): Promise<Facility> {
+    const [created] = await db.insert(facilities).values(facility).returning();
+    return created;
+  }
+
+  async updateFacility(id: number, data: Partial<Facility>): Promise<Facility | undefined> {
+    const [updated] = await db.update(facilities).set(data as any).where(eq(facilities.id, id)).returning();
+    return updated;
+  }
+
+  async deleteFacility(id: number): Promise<void> {
+    await db.delete(facilities).where(eq(facilities.id, id));
+  }
+
+  async createFacilityHealthLog(healthLog: InsertFacilityHealthLog): Promise<FacilityHealthLog> {
+    const [created] = await db.insert(facilityHealthLogs).values(healthLog).returning();
+    return created;
+  }
+
+  async getFacilityHealthLogs(facilityId: number, limit: number = 50): Promise<FacilityHealthLog[]> {
+    return db.select().from(facilityHealthLogs)
+      .where(eq(facilityHealthLogs.facilityId, facilityId))
+      .orderBy(desc(facilityHealthLogs.checkedAt))
+      .limit(limit);
   }
 }
 

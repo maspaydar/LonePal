@@ -16,6 +16,7 @@ import { emergencyService } from "./services/emergency-service";
 import { GoogleGenAI } from "@google/genai";
 import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth";
+import superAdminRouter from "./routes/super-admin";
 
 let wss: WebSocketServer;
 let _insightsAI: GoogleGenAI | null = null;
@@ -46,6 +47,45 @@ export async function registerRoutes(
   wss.on("connection", (ws) => {
     log("WebSocket client connected", "ws");
     ws.on("close", () => log("WebSocket client disconnected", "ws"));
+  });
+
+  app.use("/api/super-admin", superAdminRouter);
+
+  app.get("/api/health", async (_req, res) => {
+    try {
+      const allEntities = await storage.getEntities();
+      let totalResidents = 0;
+      for (const entity of allEntities) {
+        const residents = await storage.getResidents(entity.id);
+        totalResidents += residents.filter(r => r.isActive).length;
+      }
+      res.json({
+        status: "healthy",
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+        activeUsers: totalResidents,
+        entities: allEntities.length,
+      });
+    } catch {
+      res.status(503).json({ status: "unhealthy" });
+    }
+  });
+
+  app.post("/api/super-admin/receive-config", async (req, res) => {
+    try {
+      const configSecret = req.headers["x-config-secret"] as string;
+      if (!configSecret || configSecret !== process.env.SESSION_SECRET) {
+        return res.status(401).json({ error: "Invalid config secret" });
+      }
+      const { facilityId, config } = req.body;
+      if (!facilityId || !config) {
+        return res.status(400).json({ error: "facilityId and config required" });
+      }
+      log(`Received config push for facility ${facilityId}`, "super-admin");
+      res.json({ received: true, facilityId });
+    } catch {
+      res.status(500).json({ error: "Failed to receive config" });
+    }
   });
 
   // --- Entity routes ---
