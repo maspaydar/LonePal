@@ -19,6 +19,7 @@ import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth"
 import superAdminRouter from "./routes/super-admin";
 import maintenanceRouter from "./routes/maintenance";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
+import { initLogStreamer, streamInfo } from "./services/log-streamer";
 import { insertUserPreferencesSchema, insertDevicePairingCodeSchema } from "@shared/schema";
 import crypto from "crypto";
 
@@ -87,6 +88,71 @@ export async function registerRoutes(
       res.status(503).json({ status: "unhealthy" });
     }
   });
+
+  app.get("/api/heartbeat", async (_req, res) => {
+    try {
+      const allEntities = await storage.getEntities();
+      const heartbeatData = [];
+
+      for (const entity of allEntities) {
+        const entityUnits = await storage.getUnits(entity.id);
+        const unitStatuses = [];
+
+        for (const unit of entityUnits) {
+          const unitSensors = await storage.getSensorsByUnit(unit.id);
+          const resident = await storage.getResidentByUnit(unit.id);
+          const speakerHealth = unit.smartSpeakerId ? getSpeakerHealth(unit.smartSpeakerId) : null;
+
+          unitStatuses.push({
+            unitId: unit.id,
+            unitIdentifier: unit.unitIdentifier,
+            floor: unit.floor,
+            label: unit.label,
+            residentAssigned: !!resident,
+            residentName: resident ? `${resident.firstName} ${resident.lastName}` : null,
+            residentStatus: resident?.status || null,
+            smartSpeaker: {
+              id: unit.smartSpeakerId || null,
+              healthy: speakerHealth?.healthy ?? null,
+              consecutiveFailures: speakerHealth?.consecutiveFailures ?? 0,
+            },
+            motionSensors: unitSensors.map(s => ({
+              id: s.id,
+              location: s.location,
+              adtDeviceId: s.adtDeviceId,
+              isActive: s.isActive,
+            })),
+            sensorsActive: unitSensors.filter(s => s.isActive).length,
+            sensorsTotal: unitSensors.length,
+          });
+        }
+
+        heartbeatData.push({
+          entityId: entity.id,
+          entityName: entity.name,
+          units: unitStatuses,
+          totalUnits: entityUnits.length,
+          activeUnits: entityUnits.filter(u => u.isActive).length,
+        });
+      }
+
+      res.json({
+        status: "online",
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+        entities: heartbeatData,
+      });
+    } catch (err: any) {
+      res.status(503).json({ status: "error", error: err.message });
+    }
+  });
+
+  const initEntity = await storage.getEntity(1);
+  if (initEntity) {
+    initLogStreamer(1);
+  }
+  await storage.seedRecoveryScripts();
+  streamInfo("system", "EchoPath Nexus server started");
 
   app.post("/api/super-admin/receive-config", async (req, res) => {
     try {

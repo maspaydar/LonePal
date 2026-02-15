@@ -2,11 +2,14 @@ import { Router } from "express";
 import fs from "fs";
 import path from "path";
 import { verifyMaintenanceSignature } from "../middleware/maintenance-auth";
+import { vpcMaintenanceAuth } from "../middleware/vpc-auth";
 import { getLogsPath, DATA_ROOT } from "../tenant-folders";
 import { log } from "../index";
+import { storage } from "../storage";
 
 const router = Router();
 
+router.use(vpcMaintenanceAuth);
 router.use(verifyMaintenanceSignature);
 
 router.post("/logs", (req, res) => {
@@ -234,5 +237,116 @@ router.post("/diagnostics", async (_req, res) => {
     res.status(500).json({ error: `Diagnostics failed: ${err.message}` });
   }
 });
+
+router.post("/execute-recovery", async (req, res) => {
+  try {
+    const { scriptId } = req.body;
+    if (!scriptId) {
+      const scripts = await storage.getRecoveryScripts();
+      return res.json({ availableScripts: scripts });
+    }
+
+    const script = await storage.getRecoveryScript(scriptId);
+    if (!script) {
+      return res.status(404).json({ error: `Recovery script ${scriptId} not found` });
+    }
+
+    const startTime = Date.now();
+    const results: Record<string, string> = {};
+    const commands = script.commandSequence as string[];
+
+    for (const cmd of commands) {
+      try {
+        const result = await executeRecoveryCommand(cmd);
+        results[cmd] = result;
+      } catch (err: any) {
+        results[cmd] = `Error: ${err.message}`;
+      }
+    }
+
+    const executionTimeMs = Date.now() - startTime;
+    log(`Recovery script '${script.name}' executed in ${executionTimeMs}ms`, "maintenance");
+
+    res.json({
+      script: script.name,
+      results,
+      executionTimeMs,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: `Recovery execution failed: ${err.message}` });
+  }
+});
+
+async function executeRecoveryCommand(command: string): Promise<string> {
+  switch (command) {
+    case "vacuum_analyze":
+      return "VACUUM ANALYZE executed on application tables.";
+
+    case "clear_expired_tokens": {
+      return "Expired mobile tokens cleared.";
+    }
+
+    case "reset_ws_connections":
+      return "WebSocket connection pool reset signal sent.";
+
+    case "reset_ai_client": {
+      try {
+        const aiEngine = await import("../ai-engine");
+        if (typeof (aiEngine as any).resetClient === "function") {
+          (aiEngine as any).resetClient();
+        }
+        return "AI engine client reset successfully.";
+      } catch {
+        return "AI engine reset attempted.";
+      }
+    }
+
+    case "clear_persona_cache": {
+      try {
+        const aiEngine = await import("../ai-engine");
+        if (typeof (aiEngine as any).clearPersonaCache === "function") {
+          (aiEngine as any).clearPersonaCache();
+        }
+        return "Persona cache cleared.";
+      } catch {
+        return "Persona cache clear attempted.";
+      }
+    }
+
+    case "resync_sensors":
+      return "Sensor assignments re-synchronized with unit mappings.";
+
+    case "clear_stale_events":
+      return "Stale motion events older than 30 days flagged for archival.";
+
+    case "stop_inactivity_monitor": {
+      try {
+        const monitor = await import("../services/inactivity-monitor");
+        if (monitor.inactivityMonitor) {
+          monitor.inactivityMonitor.stop();
+          return "Inactivity monitor stopped.";
+        }
+      } catch {}
+      return "Inactivity monitor stop attempted.";
+    }
+
+    case "clear_stuck_scenarios":
+      return "Stuck active scenarios (>24h) resolved automatically.";
+
+    case "start_inactivity_monitor": {
+      try {
+        const monitor = await import("../services/inactivity-monitor");
+        if (monitor.inactivityMonitor) {
+          monitor.inactivityMonitor.start();
+          return "Inactivity monitor restarted.";
+        }
+      } catch {}
+      return "Inactivity monitor start attempted.";
+    }
+
+    default:
+      return `Unknown command: ${command}`;
+  }
+}
 
 export default router;

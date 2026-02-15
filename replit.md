@@ -4,6 +4,19 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-15**: Phase 5 Cloud Orchestration & Centralized Maintenance
+  - VPC auth middleware (`server/middleware/vpc-auth.ts`): restricts /api/maintenance to internal IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) or x-vpc-source header with VPC_AUTH_TOKEN
+  - Log streamer service (`server/services/log-streamer.ts`): hooks into alert/scenario creation, pushes critical errors and safety alerts to central_log_entries table
+  - central_log_entries table: severity (info/warning/error/critical), source, message, metadata, facilityId
+  - Global Broadcast: POST /api/super-admin/broadcast-config pushes config changes to all active facilities simultaneously
+  - Hardware Heartbeat: GET /api/heartbeat returns unit/sensor/speaker/resident status; POST /api/super-admin/facilities/heartbeat-all aggregates across facilities
+  - Recovery Scripts: 5 pre-defined scripts (db_vacuum_analyze, clear_stale_sessions, reset_ai_engine, fix_sensor_sync, restart_inactivity_monitor)
+  - recovery_scripts and recovery_execution_logs tables for script storage and audit trail
+  - Super-Admin Dashboard UI: 5 panel tabs (Facility Registry, Health Map, Log Stream, Broadcast, Recovery)
+  - Health Map panel: visual unit-by-unit hardware status with speaker/sensor/resident health indicators
+  - Log Stream panel: centralized log viewer with severity filtering
+  - Broadcast panel: push config changes to all facilities at once
+  - Recovery panel: select facility, view/execute recovery scripts, see execution results and history
 - **2026-02-15**: Phase 4 Facility Onboarding & Testing
   - `scripts/deployFacility.js`: Interactive facility deployment - generates unique Facility_ID, prompts for Gemini API key, creates isolated /data directory, registers with Super-Admin Hub, seeds scenarios, optional resident/unit/sensor setup
   - Hardware Test: GET /api/test/unit/:unitId verifies resident assignment, motion sensors, smart speaker, mobile app, AI companion, and failover readiness

@@ -282,6 +282,43 @@ export const insertUserPreferencesSchema = createInsertSchema(userPreferences).o
 export const insertDevicePairingCodeSchema = createInsertSchema(devicePairingCodes).omit({ id: true, createdAt: true });
 export const insertSpeakerEventSchema = createInsertSchema(speakerEvents).omit({ id: true, createdAt: true });
 
+export const logSeverityEnum = pgEnum("log_severity", ["info", "warning", "error", "critical"]);
+
+export const centralLogEntries = pgTable("central_log_entries", {
+  id: serial("id").primaryKey(),
+  facilityId: integer("facility_id").notNull(),
+  severity: logSeverityEnum("severity").notNull().default("info"),
+  source: text("source").notNull(),
+  message: text("message").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const recoveryScripts = pgTable("recovery_scripts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull(),
+  scriptType: text("script_type").notNull(),
+  commandSequence: jsonb("command_sequence").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const recoveryExecutionLogs = pgTable("recovery_execution_logs", {
+  id: serial("id").primaryKey(),
+  facilityId: integer("facility_id").notNull(),
+  scriptId: integer("script_id").notNull(),
+  initiatedBy: text("initiated_by").notNull(),
+  status: text("status").notNull().default("pending"),
+  resultMessage: text("result_message"),
+  executionTimeMs: integer("execution_time_ms"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertCentralLogEntrySchema = createInsertSchema(centralLogEntries).omit({ id: true, createdAt: true });
+export const insertRecoveryScriptSchema = createInsertSchema(recoveryScripts).omit({ id: true, createdAt: true });
+export const insertRecoveryExecutionLogSchema = createInsertSchema(recoveryExecutionLogs).omit({ id: true, createdAt: true });
+
 export const insertSuperAdminSchema = createInsertSchema(superAdmins).omit({ id: true, createdAt: true, lastLoginAt: true });
 export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: true, createdAt: true, lastHealthCheck: true, lastHealthStatus: true, uptimePercent: true });
 export const insertFacilityHealthLogSchema = createInsertSchema(facilityHealthLogs).omit({ id: true, checkedAt: true });
@@ -342,3 +379,9 @@ export type DevicePairingCode = typeof devicePairingCodes.$inferSelect;
 export type InsertDevicePairingCode = z.infer<typeof insertDevicePairingCodeSchema>;
 export type SpeakerEvent = typeof speakerEvents.$inferSelect;
 export type InsertSpeakerEvent = z.infer<typeof insertSpeakerEventSchema>;
+export type CentralLogEntry = typeof centralLogEntries.$inferSelect;
+export type InsertCentralLogEntry = z.infer<typeof insertCentralLogEntrySchema>;
+export type RecoveryScript = typeof recoveryScripts.$inferSelect;
+export type InsertRecoveryScript = z.infer<typeof insertRecoveryScriptSchema>;
+export type RecoveryExecutionLog = typeof recoveryExecutionLogs.$inferSelect;
+export type InsertRecoveryExecutionLog = z.infer<typeof insertRecoveryExecutionLogSchema>;

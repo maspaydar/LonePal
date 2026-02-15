@@ -19,10 +19,14 @@ import {
   type UserPreferences, type InsertUserPreferences,
   type DevicePairingCode, type InsertDevicePairingCode,
   type SpeakerEvent, type InsertSpeakerEvent,
+  type CentralLogEntry, type InsertCentralLogEntry,
+  type RecoveryScript, type InsertRecoveryScript,
+  type RecoveryExecutionLog, type InsertRecoveryExecutionLog,
   users, entities, residents, sensors, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
   maintenanceLogs, userPreferences, devicePairingCodes, speakerEvents,
+  centralLogEntries, recoveryScripts, recoveryExecutionLogs,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
@@ -134,6 +138,19 @@ export interface IStorage {
   createSpeakerEvent(event: InsertSpeakerEvent): Promise<SpeakerEvent>;
   getSpeakerEvents(unitId: number, limit?: number): Promise<SpeakerEvent[]>;
   updateSpeakerEvent(id: number, data: Partial<SpeakerEvent>): Promise<SpeakerEvent | undefined>;
+
+  createCentralLogEntry(entry: InsertCentralLogEntry): Promise<CentralLogEntry>;
+  getCentralLogEntries(facilityId?: number, limit?: number): Promise<CentralLogEntry[]>;
+  getCentralLogEntriesBySeverity(severity: string, limit?: number): Promise<CentralLogEntry[]>;
+
+  getRecoveryScripts(): Promise<RecoveryScript[]>;
+  getRecoveryScript(id: number): Promise<RecoveryScript | undefined>;
+  createRecoveryScript(script: InsertRecoveryScript): Promise<RecoveryScript>;
+  seedRecoveryScripts(): Promise<void>;
+
+  createRecoveryExecutionLog(log: InsertRecoveryExecutionLog): Promise<RecoveryExecutionLog>;
+  getRecoveryExecutionLogs(facilityId: number, limit?: number): Promise<RecoveryExecutionLog[]>;
+  updateRecoveryExecutionLog(id: number, data: Partial<RecoveryExecutionLog>): Promise<RecoveryExecutionLog | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -670,6 +687,108 @@ export class DatabaseStorage implements IStorage {
 
   async updateSpeakerEvent(id: number, data: Partial<SpeakerEvent>): Promise<SpeakerEvent | undefined> {
     const [updated] = await db.update(speakerEvents).set(data).where(eq(speakerEvents.id, id)).returning();
+    return updated;
+  }
+
+  async createCentralLogEntry(entry: InsertCentralLogEntry): Promise<CentralLogEntry> {
+    const [created] = await db.insert(centralLogEntries).values(entry).returning();
+    return created;
+  }
+
+  async getCentralLogEntries(facilityId?: number, limit: number = 100): Promise<CentralLogEntry[]> {
+    if (facilityId) {
+      return db.select().from(centralLogEntries)
+        .where(eq(centralLogEntries.facilityId, facilityId))
+        .orderBy(desc(centralLogEntries.createdAt))
+        .limit(limit);
+    }
+    return db.select().from(centralLogEntries)
+      .orderBy(desc(centralLogEntries.createdAt))
+      .limit(limit);
+  }
+
+  async getCentralLogEntriesBySeverity(severity: string, limit: number = 100): Promise<CentralLogEntry[]> {
+    return db.select().from(centralLogEntries)
+      .where(eq(centralLogEntries.severity, severity as any))
+      .orderBy(desc(centralLogEntries.createdAt))
+      .limit(limit);
+  }
+
+  async getRecoveryScripts(): Promise<RecoveryScript[]> {
+    return db.select().from(recoveryScripts).where(eq(recoveryScripts.isActive, true));
+  }
+
+  async getRecoveryScript(id: number): Promise<RecoveryScript | undefined> {
+    const [script] = await db.select().from(recoveryScripts).where(eq(recoveryScripts.id, id));
+    return script;
+  }
+
+  async createRecoveryScript(script: InsertRecoveryScript): Promise<RecoveryScript> {
+    const [created] = await db.insert(recoveryScripts).values(script).returning();
+    return created;
+  }
+
+  async seedRecoveryScripts(): Promise<void> {
+    const existing = await db.select().from(recoveryScripts);
+    if (existing.length > 0) return;
+
+    const scripts: InsertRecoveryScript[] = [
+      {
+        name: "db_vacuum_analyze",
+        description: "Run VACUUM ANALYZE on database tables to reclaim space and update statistics",
+        scriptType: "database",
+        commandSequence: ["vacuum_analyze"],
+        isActive: true,
+      },
+      {
+        name: "clear_stale_sessions",
+        description: "Clear expired mobile tokens and stale WebSocket sessions",
+        scriptType: "connectivity",
+        commandSequence: ["clear_expired_tokens", "reset_ws_connections"],
+        isActive: true,
+      },
+      {
+        name: "reset_ai_engine",
+        description: "Reset AI engine client, clear persona cache, and reinitialize Gemini connection",
+        scriptType: "service",
+        commandSequence: ["reset_ai_client", "clear_persona_cache"],
+        isActive: true,
+      },
+      {
+        name: "fix_sensor_sync",
+        description: "Re-synchronize motion sensor assignments and clear stale sensor events",
+        scriptType: "hardware",
+        commandSequence: ["resync_sensors", "clear_stale_events"],
+        isActive: true,
+      },
+      {
+        name: "restart_inactivity_monitor",
+        description: "Stop and restart the inactivity monitoring service to clear stuck scenarios",
+        scriptType: "service",
+        commandSequence: ["stop_inactivity_monitor", "clear_stuck_scenarios", "start_inactivity_monitor"],
+        isActive: true,
+      },
+    ];
+
+    for (const script of scripts) {
+      await db.insert(recoveryScripts).values(script).onConflictDoNothing();
+    }
+  }
+
+  async createRecoveryExecutionLog(log: InsertRecoveryExecutionLog): Promise<RecoveryExecutionLog> {
+    const [created] = await db.insert(recoveryExecutionLogs).values(log).returning();
+    return created;
+  }
+
+  async getRecoveryExecutionLogs(facilityId: number, limit: number = 50): Promise<RecoveryExecutionLog[]> {
+    return db.select().from(recoveryExecutionLogs)
+      .where(eq(recoveryExecutionLogs.facilityId, facilityId))
+      .orderBy(desc(recoveryExecutionLogs.createdAt))
+      .limit(limit);
+  }
+
+  async updateRecoveryExecutionLog(id: number, data: Partial<RecoveryExecutionLog>): Promise<RecoveryExecutionLog | undefined> {
+    const [updated] = await db.update(recoveryExecutionLogs).set(data).where(eq(recoveryExecutionLogs.id, id)).returning();
     return updated;
   }
 }

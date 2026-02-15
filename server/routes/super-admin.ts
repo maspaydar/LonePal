@@ -603,6 +603,251 @@ router.get("/facilities/:id/maintenance-logs", superAdminAuthMiddleware, async (
   }
 });
 
+router.post("/broadcast-config", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const { config, description } = req.body;
+    if (!config || typeof config !== "object") {
+      return res.status(400).json({ error: "Config object required" });
+    }
+
+    const allFacilities = await storage.getFacilities();
+    const activeFacilities = allFacilities.filter(f => f.installationUrl && (f.status === "active" || f.status === "maintenance"));
+
+    if (activeFacilities.length === 0) {
+      return res.json({ pushed: 0, results: [], message: "No active facilities with installation URLs" });
+    }
+
+    const results = [];
+
+    for (const facility of activeFacilities) {
+      try {
+        const { signature, timestamp } = signMaintenancePayload(config);
+        const response = await fetch(`${facility.installationUrl}/api/super-admin/receive-config`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-maintenance-signature": signature,
+            "x-maintenance-timestamp": String(timestamp),
+          },
+          body: JSON.stringify({ facilityId: facility.facilityId, config }),
+          signal: AbortSignal.timeout(10000),
+        });
+
+        const status = response.ok ? "success" : "failed";
+        if (response.ok) {
+          await storage.updateFacility(facility.id, { configJson: config });
+        }
+
+        await storage.createMaintenanceLog({
+          facilityId: facility.id,
+          action: "broadcast_config",
+          command: description || JSON.stringify(Object.keys(config)),
+          initiatedBy: req.superAdmin!.email,
+          status: status === "success" ? "completed" : "failed",
+          resultMessage: status === "success" ? "Config broadcast received" : `HTTP ${response.status}`,
+        });
+
+        results.push({ facilityId: facility.facilityId, name: facility.name, status });
+      } catch (err: any) {
+        await storage.createMaintenanceLog({
+          facilityId: facility.id,
+          action: "broadcast_config",
+          command: description || JSON.stringify(Object.keys(config)),
+          initiatedBy: req.superAdmin!.email,
+          status: "failed",
+          resultMessage: err.message,
+        });
+        results.push({ facilityId: facility.facilityId, name: facility.name, status: "unreachable", error: err.message });
+      }
+    }
+
+    const successCount = results.filter(r => r.status === "success").length;
+    res.json({ pushed: successCount, total: activeFacilities.length, results });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Broadcast failed" });
+  }
+});
+
+router.post("/facilities/:id/heartbeat", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facility = await storage.getFacility(Number(req.params.id));
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    if (!facility.installationUrl) {
+      return res.status(400).json({ error: "Facility has no installation URL" });
+    }
+
+    try {
+      const response = await fetch(`${facility.installationUrl}/api/heartbeat`, {
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        return res.status(502).json({ error: `Facility responded with ${response.status}` });
+      }
+
+      const data = await response.json();
+      res.json(data);
+    } catch (err: any) {
+      res.status(502).json({ error: `Could not reach facility: ${err.message}` });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Heartbeat failed" });
+  }
+});
+
+router.post("/facilities/heartbeat-all", superAdminAuthMiddleware, async (_req, res) => {
+  try {
+    const allFacilities = await storage.getFacilities();
+    const results = [];
+
+    for (const facility of allFacilities) {
+      if (!facility.installationUrl) {
+        results.push({ facilityId: facility.facilityId, name: facility.name, status: "no_url", units: [] });
+        continue;
+      }
+
+      try {
+        const response = await fetch(`${facility.installationUrl}/api/heartbeat`, {
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          results.push({
+            facilityId: facility.facilityId,
+            name: facility.name,
+            status: "online",
+            ...data,
+          });
+        } else {
+          results.push({ facilityId: facility.facilityId, name: facility.name, status: "unhealthy", units: [] });
+        }
+      } catch {
+        results.push({ facilityId: facility.facilityId, name: facility.name, status: "unreachable", units: [] });
+      }
+    }
+
+    res.json({ facilities: results, checkedAt: new Date().toISOString() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Heartbeat check failed" });
+  }
+});
+
+router.get("/central-logs", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facilityId = req.query.facilityId ? Number(req.query.facilityId) : undefined;
+    const severity = req.query.severity as string | undefined;
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+
+    let logs;
+    if (severity) {
+      logs = await storage.getCentralLogEntriesBySeverity(severity, limit);
+    } else {
+      logs = await storage.getCentralLogEntries(facilityId, limit);
+    }
+
+    const allFacilities = await storage.getFacilities();
+    const facilityMap = new Map(allFacilities.map(f => [f.id, f.name]));
+
+    const enriched = logs.map(l => ({
+      ...l,
+      facilityName: facilityMap.get(l.facilityId) || `Facility #${l.facilityId}`,
+    }));
+
+    res.json(enriched);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to fetch central logs" });
+  }
+});
+
+router.get("/recovery-scripts", superAdminAuthMiddleware, async (_req, res) => {
+  try {
+    const scripts = await storage.getRecoveryScripts();
+    res.json(scripts);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to fetch recovery scripts" });
+  }
+});
+
+router.post("/facilities/:id/execute-recovery", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facility = await storage.getFacility(Number(req.params.id));
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    const { scriptId } = req.body;
+    if (!scriptId) return res.status(400).json({ error: "scriptId required" });
+
+    const script = await storage.getRecoveryScript(scriptId);
+    if (!script) return res.status(404).json({ error: "Recovery script not found" });
+
+    const execLog = await storage.createRecoveryExecutionLog({
+      facilityId: facility.id,
+      scriptId: script.id,
+      initiatedBy: req.superAdmin!.email,
+      status: "running",
+    });
+
+    await storage.createMaintenanceLog({
+      facilityId: facility.id,
+      action: "recovery_script",
+      command: script.name,
+      initiatedBy: req.superAdmin!.email,
+      status: "pending",
+    });
+
+    if (!facility.installationUrl) {
+      await storage.updateRecoveryExecutionLog(execLog.id, {
+        status: "failed",
+        resultMessage: "Facility has no installation URL",
+        executionTimeMs: 0,
+      });
+      return res.status(400).json({ error: "Facility has no installation URL" });
+    }
+
+    const startTime = Date.now();
+
+    try {
+      const payload = { scriptId: script.id };
+      const data = await proxyMaintenanceRequest(facility as any, "execute-recovery", payload, req.superAdmin!.email);
+      const executionTimeMs = Date.now() - startTime;
+
+      await storage.updateRecoveryExecutionLog(execLog.id, {
+        status: "completed",
+        resultMessage: JSON.stringify(data.results || data),
+        executionTimeMs,
+      });
+
+      res.json({
+        executionId: execLog.id,
+        script: script.name,
+        ...data,
+        executionTimeMs,
+      });
+    } catch (err: any) {
+      const executionTimeMs = Date.now() - startTime;
+      await storage.updateRecoveryExecutionLog(execLog.id, {
+        status: "failed",
+        resultMessage: err.message,
+        executionTimeMs,
+      });
+      res.status(502).json({ error: err.message });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Recovery execution failed" });
+  }
+});
+
+router.get("/facilities/:id/recovery-logs", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const logs = await storage.getRecoveryExecutionLogs(Number(req.params.id), limit);
+    res.json(logs);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to fetch recovery logs" });
+  }
+});
+
 router.get("/dashboard", superAdminAuthMiddleware, async (_req, res) => {
   const allFacilities = await storage.getFacilities();
 

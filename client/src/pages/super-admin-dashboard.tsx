@@ -33,6 +33,14 @@ import {
   Cpu,
   HardDrive,
   Clock,
+  Radio,
+  Map,
+  Play,
+  Megaphone,
+  AlertTriangle,
+  Speaker,
+  Zap,
+  Eye,
 } from "lucide-react";
 import {
   Dialog,
@@ -118,6 +126,8 @@ export default function SuperAdminDashboard() {
   const [totpData, setTotpData] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [verifyCode, setVerifyCode] = useState("");
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
+
+  const [activePanel, setActivePanel] = useState<"registry" | "healthmap" | "logstream" | "broadcast" | "recovery">("registry");
 
   const [showMaintenance, setShowMaintenance] = useState(false);
   const [maintenanceFacility, setMaintenanceFacility] = useState<Facility | null>(null);
@@ -459,6 +469,98 @@ export default function SuperAdminDashboard() {
           </Card>
         </div>
 
+        <div className="flex items-center gap-2 flex-wrap">
+          {([
+            { id: "registry", label: "Facility Registry", icon: Building2 },
+            { id: "healthmap", label: "Health Map", icon: Map },
+            { id: "logstream", label: "Log Stream", icon: Radio },
+            { id: "broadcast", label: "Broadcast", icon: Megaphone },
+            { id: "recovery", label: "Recovery", icon: Terminal },
+          ] as const).map((tab) => (
+            <Button
+              key={tab.id}
+              variant={activePanel === tab.id ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActivePanel(tab.id)}
+              data-testid={`button-panel-${tab.id}`}
+            >
+              <tab.icon className="w-4 h-4 mr-1" />
+              {tab.label}
+            </Button>
+          ))}
+        </div>
+
+        {activePanel === "registry" && (<RegistryPanel
+          dashData={dashData}
+          healthCheckMutation={healthCheckMutation}
+          showAddFacility={showAddFacility}
+          setShowAddFacility={setShowAddFacility}
+          newFacility={newFacility}
+          setNewFacility={setNewFacility}
+          addFacilityMutation={addFacilityMutation}
+          deleteFacilityMutation={deleteFacilityMutation}
+          updateFacilityMutation={updateFacilityMutation}
+          openMaintenance={openMaintenance}
+          setSelectedFacility={setSelectedFacility}
+          setShowConfigDialog={setShowConfigDialog}
+        />)}
+
+        {activePanel === "healthmap" && (<HealthMapPanel />)}
+        {activePanel === "logstream" && (<LogStreamPanel />)}
+        {activePanel === "broadcast" && (<BroadcastPanel />)}
+        {activePanel === "recovery" && (<RecoveryPanel dashData={dashData} />)}
+      </main>
+
+      <ConfigDialog
+        showConfigDialog={showConfigDialog}
+        setShowConfigDialog={setShowConfigDialog}
+        selectedFacility={selectedFacility}
+        configKey={configKey}
+        setConfigKey={setConfigKey}
+        configValue={configValue}
+        setConfigValue={setConfigValue}
+        pushConfigMutation={pushConfigMutation}
+      />
+
+      <TwoFADialog
+        showSetup2FA={showSetup2FA}
+        setShowSetup2FA={setShowSetup2FA}
+        totpData={totpData}
+        verifyCode={verifyCode}
+        setVerifyCode={setVerifyCode}
+        isVerifying2FA={isVerifying2FA}
+        setIsVerifying2FA={setIsVerifying2FA}
+        toast={toast}
+      />
+
+      <MaintenanceDialog
+        showMaintenance={showMaintenance}
+        setShowMaintenance={setShowMaintenance}
+        maintenanceFacility={maintenanceFacility}
+        maintenanceTab={maintenanceTab}
+        setMaintenanceTab={setMaintenanceTab}
+        logLines={logLines}
+        logFileName={logFileName}
+        availableLogFiles={availableLogFiles}
+        selectedLogFile={selectedLogFile}
+        setSelectedLogFile={setSelectedLogFile}
+        isLoadingLogs={isLoadingLogs}
+        diagnosticsData={diagnosticsData}
+        isLoadingDiagnostics={isLoadingDiagnostics}
+        maintenanceHistory={maintenanceHistory}
+        fetchLogs={fetchLogs}
+        fetchDiagnostics={fetchDiagnostics}
+        restartServiceMutation={restartServiceMutation}
+        clearCacheMutation={clearCacheMutation}
+        toast={toast}
+      />
+    </div>
+  );
+}
+
+function RegistryPanel({ dashData, healthCheckMutation, showAddFacility, setShowAddFacility, newFacility, setNewFacility, addFacilityMutation, deleteFacilityMutation, updateFacilityMutation, openMaintenance, setSelectedFacility, setShowConfigDialog }: any) {
+  return (
+    <>
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h2 className="text-lg font-semibold">Facility Registry</h2>
           <div className="flex items-center gap-2">
@@ -691,386 +793,921 @@ export default function SuperAdminDashboard() {
             </div>
           )}
         </div>
-      </main>
+    </>
+  );
+}
 
-      <Dialog open={showConfigDialog} onOpenChange={setShowConfigDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Push Configuration - {selectedFacility?.name}</DialogTitle>
-            <DialogDescription>Push environment config to {selectedFacility?.facilityId}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label>Config Key</Label>
-                <Input
-                  value={configKey}
-                  onChange={(e) => setConfigKey(e.target.value)}
-                  placeholder="GEMINI_API_KEY"
-                  data-testid="input-config-key"
-                />
+function HealthMapPanel() {
+  const { toast } = useToast();
+  const [heartbeatData, setHeartbeatData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  async function fetchHeartbeat() {
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/super-admin/facilities/heartbeat-all", {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      setHeartbeatData(data);
+    } catch {
+      toast({ title: "Error", description: "Failed to fetch heartbeat data", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-semibold" data-testid="text-healthmap-title">Hardware Health Map</h2>
+        <Button
+          size="sm"
+          onClick={fetchHeartbeat}
+          disabled={isLoading}
+          data-testid="button-fetch-heartbeat"
+        >
+          <Radio className={`w-4 h-4 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+          {isLoading ? "Scanning..." : "Scan All Facilities"}
+        </Button>
+      </div>
+
+      {!heartbeatData && (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Map className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">Click "Scan All Facilities" to load the hardware health map</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {heartbeatData?.facilities?.map((facility: any) => (
+        <Card key={facility.facilityId} data-testid={`card-heartbeat-${facility.facilityId}`}>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <CircleDot className={`w-4 h-4 ${facility.status === "online" ? "text-green-500" : facility.status === "unreachable" ? "text-red-500" : "text-muted-foreground"}`} />
+                {facility.name || facility.facilityId}
+              </CardTitle>
+              <Badge variant={facility.status === "online" ? "default" : "destructive"}>
+                {facility.status}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {facility.entities?.map((entity: any) => (
+              <div key={entity.entityId} className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">{entity.entityName} - {entity.totalUnits} units</p>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {entity.units?.map((unit: any) => (
+                    <div key={unit.unitId} className="border rounded-md p-3 space-y-2" data-testid={`unit-heartbeat-${unit.unitId}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{unit.unitIdentifier}</span>
+                        {unit.floor && <span className="text-xs text-muted-foreground">Floor {unit.floor}</span>}
+                      </div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1">
+                            <Speaker className="w-3 h-3" />
+                            Speaker
+                          </span>
+                          {unit.smartSpeaker?.id ? (
+                            <Badge variant={unit.smartSpeaker.healthy !== false ? "default" : "destructive"} className="text-[10px]">
+                              {unit.smartSpeaker.healthy !== false ? "OK" : `Fail (${unit.smartSpeaker.consecutiveFailures})`}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px]">N/A</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1">
+                            <Zap className="w-3 h-3" />
+                            Sensors
+                          </span>
+                          <Badge variant={unit.sensorsActive > 0 ? "default" : "outline"} className="text-[10px]">
+                            {unit.sensorsActive}/{unit.sensorsTotal} active
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            Resident
+                          </span>
+                          {unit.residentAssigned ? (
+                            <span className="text-foreground font-medium">{unit.residentName}</span>
+                          ) : (
+                            <span className="text-muted-foreground">Unassigned</span>
+                          )}
+                        </div>
+                        {unit.residentStatus && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Status</span>
+                            <Badge variant={unit.residentStatus === "safe" ? "default" : "destructive"} className="text-[10px]">
+                              {unit.residentStatus}
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {entity.units?.length === 0 && (
+                    <p className="text-xs text-muted-foreground col-span-full">No units configured</p>
+                  )}
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label>Config Value</Label>
-                <Input
-                  value={configValue}
-                  onChange={(e) => setConfigValue(e.target.value)}
-                  placeholder="AIza..."
-                  data-testid="input-config-value"
-                />
+            ))}
+          </CardContent>
+        </Card>
+      ))}
+
+      {heartbeatData && heartbeatData.facilities?.length === 0 && (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <p className="text-sm">No facilities to scan</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function LogStreamPanel() {
+  const { toast } = useToast();
+  const [logs, setLogs] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [severityFilter, setSeverityFilter] = useState("all");
+
+  async function fetchCentralLogs() {
+    setIsLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "200" });
+      if (severityFilter !== "all") params.append("severity", severityFilter);
+      const res = await fetch(`/api/super-admin/central-logs?${params}`, {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      setLogs(data);
+    } catch {
+      toast({ title: "Error", description: "Failed to fetch central logs", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  const severityColor = (severity: string) => {
+    switch (severity) {
+      case "critical": return "text-red-600 dark:text-red-400";
+      case "error": return "text-red-500 dark:text-red-400";
+      case "warning": return "text-amber-600 dark:text-amber-400";
+      default: return "text-foreground";
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-semibold" data-testid="text-logstream-title">Centralized Log Stream</h2>
+        <div className="flex items-center gap-2">
+          <Select value={severityFilter} onValueChange={setSeverityFilter}>
+            <SelectTrigger className="w-auto" data-testid="select-severity-filter">
+              <SelectValue placeholder="All severities" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Severities</SelectItem>
+              <SelectItem value="critical">Critical</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+              <SelectItem value="warning">Warning</SelectItem>
+              <SelectItem value="info">Info</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" onClick={fetchCentralLogs} disabled={isLoading} data-testid="button-fetch-central-logs">
+            <RefreshCw className={`w-4 h-4 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+            {isLoading ? "Loading..." : "Refresh"}
+          </Button>
+        </div>
+      </div>
+
+      {logs.length === 0 && !isLoading && (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Radio className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">No log entries yet. Click "Refresh" to load centralized logs.</p>
+            <p className="text-xs mt-1">Critical errors and safety alerts are streamed here in real-time.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {logs.length > 0 && (
+        <Card>
+          <CardContent className="py-3 px-0">
+            <div className="max-h-[500px] overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-card">
+                  <tr className="border-b">
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Time</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Severity</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Facility</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Source</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map((entry: any) => (
+                    <tr key={entry.id} className="border-b last:border-0" data-testid={`row-log-${entry.id}`}>
+                      <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">
+                        {new Date(entry.createdAt).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2">
+                        <Badge variant={entry.severity === "critical" ? "destructive" : entry.severity === "error" ? "destructive" : entry.severity === "warning" ? "secondary" : "outline"} className="text-[10px]">
+                          {entry.severity}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2 text-muted-foreground">{entry.facilityName}</td>
+                      <td className="px-4 py-2 font-mono">{entry.source}</td>
+                      <td className={`px-4 py-2 ${severityColor(entry.severity)}`}>{entry.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function BroadcastPanel() {
+  const { toast } = useToast();
+  const [broadcastKey, setBroadcastKey] = useState("");
+  const [broadcastValue, setBroadcastValue] = useState("");
+  const [broadcastDescription, setBroadcastDescription] = useState("");
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [results, setResults] = useState<any[]>([]);
+
+  async function handleBroadcast() {
+    if (!broadcastKey || !broadcastValue) return;
+    setIsBroadcasting(true);
+    try {
+      const res = await fetch("/api/super-admin/broadcast-config", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          config: { [broadcastKey]: broadcastValue },
+          description: broadcastDescription || `Update ${broadcastKey}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setResults(data.results || []);
+      toast({ title: "Broadcast Complete", description: `Pushed to ${data.pushed}/${data.total} facilities` });
+      setBroadcastKey("");
+      setBroadcastValue("");
+      setBroadcastDescription("");
+    } catch (err: any) {
+      toast({ title: "Broadcast Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsBroadcasting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-semibold" data-testid="text-broadcast-title">Global Update Dispatcher</h2>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Broadcast Configuration to All Facilities</CardTitle>
+          <CardDescription className="text-xs">Push a config change (security patch, AI prompt update, etc.) to every active facility at once.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Config Key</Label>
+              <Input
+                value={broadcastKey}
+                onChange={(e) => setBroadcastKey(e.target.value)}
+                placeholder="AI_SYSTEM_PROMPT"
+                data-testid="input-broadcast-key"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Config Value</Label>
+              <Input
+                value={broadcastValue}
+                onChange={(e) => setBroadcastValue(e.target.value)}
+                placeholder="Updated prompt text..."
+                data-testid="input-broadcast-value"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Description (optional)</Label>
+            <Input
+              value={broadcastDescription}
+              onChange={(e) => setBroadcastDescription(e.target.value)}
+              placeholder="Security patch v2.1 - updated AI prompt"
+              data-testid="input-broadcast-desc"
+            />
+          </div>
+          <Button
+            onClick={handleBroadcast}
+            disabled={!broadcastKey || !broadcastValue || isBroadcasting}
+            className="w-full"
+            data-testid="button-broadcast-push"
+          >
+            <Megaphone className="w-4 h-4 mr-1" />
+            {isBroadcasting ? "Broadcasting..." : "Broadcast to All Active Facilities"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {results.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Broadcast Results</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {results.map((r: any, i: number) => (
+                <div key={i} className="flex items-center justify-between gap-2 text-xs" data-testid={`text-broadcast-result-${i}`}>
+                  <div className="flex items-center gap-2">
+                    <CircleDot className={`w-3 h-3 ${r.status === "success" ? "text-green-500" : "text-red-500"}`} />
+                    <span className="font-medium">{r.name || r.facilityId}</span>
+                  </div>
+                  <Badge variant={r.status === "success" ? "default" : "destructive"} className="text-[10px]">
+                    {r.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function RecoveryPanel({ dashData }: { dashData: DashboardData | undefined }) {
+  const { toast } = useToast();
+  const [scripts, setScripts] = useState<any[]>([]);
+  const [isLoadingScripts, setIsLoadingScripts] = useState(false);
+  const [selectedFacilityForRecovery, setSelectedFacilityForRecovery] = useState<string>("");
+  const [executionResult, setExecutionResult] = useState<any>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [recoveryHistory, setRecoveryHistory] = useState<any[]>([]);
+
+  async function fetchScripts() {
+    setIsLoadingScripts(true);
+    try {
+      const res = await fetch("/api/super-admin/recovery-scripts", {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      setScripts(data);
+    } catch {
+      toast({ title: "Error", description: "Failed to load recovery scripts", variant: "destructive" });
+    } finally {
+      setIsLoadingScripts(false);
+    }
+  }
+
+  async function executeScript(scriptId: number) {
+    if (!selectedFacilityForRecovery) {
+      toast({ title: "Select a facility", description: "Choose which facility to run the recovery on", variant: "destructive" });
+      return;
+    }
+    setIsExecuting(true);
+    setExecutionResult(null);
+    try {
+      const res = await fetch(`/api/super-admin/facilities/${selectedFacilityForRecovery}/execute-recovery`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ scriptId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setExecutionResult(data);
+      toast({ title: "Recovery Complete", description: `Script executed in ${data.executionTimeMs}ms` });
+
+      const histRes = await fetch(`/api/super-admin/facilities/${selectedFacilityForRecovery}/recovery-logs?limit=10`, {
+        headers: authHeaders(),
+      });
+      if (histRes.ok) setRecoveryHistory(await histRes.json());
+    } catch (err: any) {
+      toast({ title: "Recovery Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsExecuting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-semibold" data-testid="text-recovery-title">Recovery Scripts</h2>
+        <div className="flex items-center gap-2">
+          <Select value={selectedFacilityForRecovery} onValueChange={setSelectedFacilityForRecovery}>
+            <SelectTrigger className="w-auto" data-testid="select-recovery-facility">
+              <SelectValue placeholder="Select facility" />
+            </SelectTrigger>
+            <SelectContent>
+              {dashData?.facilities?.map((f) => (
+                <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button size="sm" onClick={fetchScripts} disabled={isLoadingScripts} data-testid="button-load-scripts">
+            <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingScripts ? "animate-spin" : ""}`} />
+            {isLoadingScripts ? "Loading..." : "Load Scripts"}
+          </Button>
+        </div>
+      </div>
+
+      {scripts.length === 0 && !isLoadingScripts && (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Terminal className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">Click "Load Scripts" to view available recovery operations</p>
+            <p className="text-xs mt-1">Pre-defined scripts fix common database, connectivity, and service issues.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {scripts.length > 0 && (
+        <div className="grid gap-3 md:grid-cols-2">
+          {scripts.map((script: any) => (
+            <Card key={script.id} data-testid={`card-script-${script.id}`}>
+              <CardContent className="py-4 px-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{script.name}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{script.description}</p>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] shrink-0">{script.scriptType}</Badge>
+                </div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {(script.commandSequence as string[])?.map((cmd: string, i: number) => (
+                    <Badge key={i} variant="secondary" className="text-[10px] font-mono">{cmd}</Badge>
+                  ))}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  disabled={isExecuting || !selectedFacilityForRecovery}
+                  onClick={() => executeScript(script.id)}
+                  data-testid={`button-run-script-${script.id}`}
+                >
+                  <Play className="w-3 h-3 mr-1" />
+                  {isExecuting ? "Executing..." : "Run Script"}
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {executionResult && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <CircleDot className="w-4 h-4 text-green-500" />
+              Execution Result - {executionResult.script}
+            </CardTitle>
+            <CardDescription className="text-xs">Completed in {executionResult.executionTimeMs}ms</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="bg-muted rounded-md p-3 font-mono text-xs space-y-1" data-testid="container-execution-result">
+              {executionResult.results && Object.entries(executionResult.results).map(([cmd, result]: [string, any]) => (
+                <div key={cmd}>
+                  <span className="text-muted-foreground">$ {cmd}: </span>
+                  <span>{String(result)}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {recoveryHistory.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Recovery History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-48 overflow-auto">
+              {recoveryHistory.map((log: any) => (
+                <div key={log.id} className="flex items-center justify-between gap-2 text-xs" data-testid={`text-recovery-log-${log.id}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge variant={log.status === "completed" ? "default" : log.status === "running" ? "secondary" : "destructive"} className="text-[10px]">
+                      {log.status}
+                    </Badge>
+                    <span className="text-muted-foreground truncate">Script #{log.scriptId}</span>
+                    <span className="text-muted-foreground">{log.initiatedBy}</span>
+                  </div>
+                  <span className="text-muted-foreground shrink-0">
+                    {new Date(log.createdAt).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ConfigDialog({ showConfigDialog, setShowConfigDialog, selectedFacility, configKey, setConfigKey, configValue, setConfigValue, pushConfigMutation }: any) {
+  return (
+    <Dialog open={showConfigDialog} onOpenChange={setShowConfigDialog}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Push Configuration - {selectedFacility?.name}</DialogTitle>
+          <DialogDescription>Push environment config to {selectedFacility?.facilityId}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label>Config Key</Label>
+              <Input
+                value={configKey}
+                onChange={(e) => setConfigKey(e.target.value)}
+                placeholder="GEMINI_API_KEY"
+                data-testid="input-config-key"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Config Value</Label>
+              <Input
+                value={configValue}
+                onChange={(e) => setConfigValue(e.target.value)}
+                placeholder="AIza..."
+                data-testid="input-config-value"
+              />
+            </div>
+          </div>
+          <Button
+            className="w-full"
+            disabled={!configKey || !configValue || pushConfigMutation.isPending}
+            onClick={() => {
+              if (selectedFacility) {
+                pushConfigMutation.mutate({
+                  id: selectedFacility.id,
+                  config: { [configKey]: configValue },
+                });
+              }
+            }}
+            data-testid="button-push-config"
+          >
+            <Send className="w-4 h-4 mr-1" />
+            {pushConfigMutation.isPending ? "Pushing..." : "Push Config"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TwoFADialog({ showSetup2FA, setShowSetup2FA, totpData, verifyCode, setVerifyCode, isVerifying2FA, setIsVerifying2FA, toast }: any) {
+  return (
+    <Dialog open={showSetup2FA} onOpenChange={setShowSetup2FA}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Two-Factor Authentication Setup</DialogTitle>
+          <DialogDescription>Add your authenticator app for enhanced security</DialogDescription>
+        </DialogHeader>
+        {totpData && (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Add this secret key to your authenticator app (Google Authenticator, Authy, etc.):
+              </p>
+              <div className="bg-muted p-3 rounded-md">
+                <code className="text-sm font-mono break-all" data-testid="text-totp-secret">{totpData.secret}</code>
               </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Or use this URI:</p>
+              <div className="bg-muted p-3 rounded-md">
+                <code className="text-xs font-mono break-all">{totpData.otpauthUrl}</code>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Enter a code from your authenticator to verify setup:</Label>
+              <Input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={verifyCode}
+                onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="000000"
+                className="text-center text-xl tracking-widest"
+                data-testid="input-verify-2fa-code"
+              />
             </div>
             <Button
               className="w-full"
-              disabled={!configKey || !configValue || pushConfigMutation.isPending}
-              onClick={() => {
-                if (selectedFacility) {
-                  pushConfigMutation.mutate({
-                    id: selectedFacility.id,
-                    config: { [configKey]: configValue },
+              disabled={verifyCode.length !== 6 || isVerifying2FA}
+              onClick={async () => {
+                setIsVerifying2FA(true);
+                try {
+                  const res = await fetch("/api/super-admin/auth/confirm-2fa", {
+                    method: "POST",
+                    headers: authHeaders(),
+                    body: JSON.stringify({ token: verifyCode }),
                   });
+                  const data = await res.json();
+                  if (!res.ok) {
+                    toast({ title: "Verification failed", description: data.error, variant: "destructive" });
+                    return;
+                  }
+                  toast({ title: "2FA Enabled", description: "Two-factor authentication is now active" });
+                  setShowSetup2FA(false);
+                  setVerifyCode("");
+                  const adminData = JSON.parse(localStorage.getItem("superAdmin") || "{}");
+                  adminData.totpEnabled = true;
+                  localStorage.setItem("superAdmin", JSON.stringify(adminData));
+                } catch {
+                  toast({ title: "Error", description: "Verification failed", variant: "destructive" });
+                } finally {
+                  setIsVerifying2FA(false);
                 }
               }}
-              data-testid="button-push-config"
+              data-testid="button-confirm-2fa"
             >
-              <Send className="w-4 h-4 mr-1" />
-              {pushConfigMutation.isPending ? "Pushing..." : "Push Config"}
+              <KeyRound className="w-4 h-4 mr-1" />
+              {isVerifying2FA ? "Verifying..." : "Verify and Enable 2FA"}
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-      <Dialog open={showSetup2FA} onOpenChange={setShowSetup2FA}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Two-Factor Authentication Setup</DialogTitle>
-            <DialogDescription>Add your authenticator app for enhanced security</DialogDescription>
-          </DialogHeader>
-          {totpData && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Add this secret key to your authenticator app (Google Authenticator, Authy, etc.):
-                </p>
-                <div className="bg-muted p-3 rounded-md">
-                  <code className="text-sm font-mono break-all" data-testid="text-totp-secret">{totpData.secret}</code>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Or use this URI:</p>
-                <div className="bg-muted p-3 rounded-md">
-                  <code className="text-xs font-mono break-all">{totpData.otpauthUrl}</code>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Enter a code from your authenticator to verify setup:</Label>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={verifyCode}
-                  onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
-                  placeholder="000000"
-                  className="text-center text-xl tracking-widest"
-                  data-testid="input-verify-2fa-code"
-                />
-              </div>
+function MaintenanceDialog({ showMaintenance, setShowMaintenance, maintenanceFacility, maintenanceTab, setMaintenanceTab, logLines, logFileName, availableLogFiles, selectedLogFile, setSelectedLogFile, isLoadingLogs, diagnosticsData, isLoadingDiagnostics, maintenanceHistory, fetchLogs, fetchDiagnostics, restartServiceMutation, clearCacheMutation }: any) {
+  return (
+    <Dialog open={showMaintenance} onOpenChange={setShowMaintenance}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wrench className="w-5 h-5" />
+            Remote Diagnostics - {maintenanceFacility?.name}
+          </DialogTitle>
+          <DialogDescription>
+            Remote maintenance tunnel for {maintenanceFacility?.facilityId}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex gap-1 flex-wrap">
+          {(["logs", "services", "cache", "diagnostics"] as const).map((tab) => (
+            <Button
+              key={tab}
+              variant={maintenanceTab === tab ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMaintenanceTab(tab)}
+              data-testid={`button-tab-${tab}`}
+            >
+              {tab === "logs" && <FileText className="w-3 h-3 mr-1" />}
+              {tab === "services" && <RotateCcw className="w-3 h-3 mr-1" />}
+              {tab === "cache" && <Database className="w-3 h-3 mr-1" />}
+              {tab === "diagnostics" && <Cpu className="w-3 h-3 mr-1" />}
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </Button>
+          ))}
+        </div>
+
+        {maintenanceTab === "logs" && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
               <Button
-                className="w-full"
-                disabled={verifyCode.length !== 6 || isVerifying2FA}
-                onClick={async () => {
-                  setIsVerifying2FA(true);
-                  try {
-                    const res = await fetch("/api/super-admin/auth/confirm-2fa", {
-                      method: "POST",
-                      headers: authHeaders(),
-                      body: JSON.stringify({ token: verifyCode }),
-                    });
-                    const data = await res.json();
-                    if (!res.ok) {
-                      toast({ title: "Verification failed", description: data.error, variant: "destructive" });
-                      return;
-                    }
-                    toast({ title: "2FA Enabled", description: "Two-factor authentication is now active" });
-                    setShowSetup2FA(false);
-                    setVerifyCode("");
-                    const adminData = JSON.parse(localStorage.getItem("superAdmin") || "{}");
-                    adminData.totpEnabled = true;
-                    localStorage.setItem("superAdmin", JSON.stringify(adminData));
-                  } catch {
-                    toast({ title: "Error", description: "Verification failed", variant: "destructive" });
-                  } finally {
-                    setIsVerifying2FA(false);
-                  }
-                }}
-                data-testid="button-confirm-2fa"
-              >
-                <KeyRound className="w-4 h-4 mr-1" />
-                {isVerifying2FA ? "Verifying..." : "Verify and Enable 2FA"}
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showMaintenance} onOpenChange={setShowMaintenance}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Wrench className="w-5 h-5" />
-              Remote Diagnostics - {maintenanceFacility?.name}
-            </DialogTitle>
-            <DialogDescription>
-              Remote maintenance tunnel for {maintenanceFacility?.facilityId}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex gap-1 flex-wrap">
-            {(["logs", "services", "cache", "diagnostics"] as const).map((tab) => (
-              <Button
-                key={tab}
-                variant={maintenanceTab === tab ? "default" : "outline"}
                 size="sm"
-                onClick={() => setMaintenanceTab(tab)}
-                data-testid={`button-tab-${tab}`}
+                onClick={() => maintenanceFacility && fetchLogs(maintenanceFacility.id, selectedLogFile || undefined)}
+                disabled={isLoadingLogs}
+                data-testid="button-fetch-logs"
               >
-                {tab === "logs" && <FileText className="w-3 h-3 mr-1" />}
-                {tab === "services" && <RotateCcw className="w-3 h-3 mr-1" />}
-                {tab === "cache" && <Database className="w-3 h-3 mr-1" />}
-                {tab === "diagnostics" && <Cpu className="w-3 h-3 mr-1" />}
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                <Download className="w-3 h-3 mr-1" />
+                {isLoadingLogs ? "Loading..." : "Fetch Logs"}
               </Button>
+              {availableLogFiles.length > 0 && (
+                <Select value={selectedLogFile} onValueChange={(v) => setSelectedLogFile(v)}>
+                  <SelectTrigger className="w-auto" data-testid="select-log-file">
+                    <SelectValue placeholder="Latest log file" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableLogFiles.map((f: string) => (
+                      <SelectItem key={f} value={f}>{f}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            {logFileName && (
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">{logFileName}</Badge>
+                <span className="text-xs text-muted-foreground">{logLines.length} lines</span>
+              </div>
+            )}
+            <div
+              className="bg-muted rounded-md p-3 font-mono text-xs max-h-64 overflow-auto"
+              data-testid="container-log-viewer"
+            >
+              {logLines.length === 0 ? (
+                <p className="text-muted-foreground">No logs loaded. Click "Fetch Logs" to retrieve facility logs.</p>
+              ) : (
+                logLines.map((line: string, i: number) => {
+                  let parsed: any = null;
+                  try { parsed = JSON.parse(line); } catch {}
+                  const levelColor = parsed?.level === "ERROR"
+                    ? "text-red-500"
+                    : parsed?.level === "WARN"
+                      ? "text-amber-500"
+                      : "text-foreground";
+                  return (
+                    <div key={i} className={`whitespace-pre-wrap break-all ${levelColor}`} data-testid={`text-log-line-${i}`}>
+                      {parsed
+                        ? `[${parsed.timestamp?.slice(11, 19) || ""}] [${parsed.level}] ${parsed.source}: ${parsed.message}`
+                        : line}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {maintenanceTab === "services" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Restart individual services on the facility backend without a full redeploy.
+            </p>
+            {[
+              { id: "ai-engine", label: "AI Engine", desc: "Reset Gemini client connection", icon: Cpu },
+              { id: "inactivity-monitor", label: "Inactivity Monitor", desc: "Restart monitoring timers", icon: Clock },
+              { id: "websocket", label: "WebSocket", desc: "Refresh client connections", icon: Wifi },
+            ].map((svc) => (
+              <Card key={svc.id}>
+                <CardContent className="flex items-center justify-between gap-3 py-3 px-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <svc.icon className="w-5 h-5 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{svc.label}</p>
+                      <p className="text-xs text-muted-foreground">{svc.desc}</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={restartServiceMutation.isPending}
+                    onClick={() => maintenanceFacility && restartServiceMutation.mutate({
+                      facilityId: maintenanceFacility.id,
+                      service: svc.id,
+                    })}
+                    data-testid={`button-restart-${svc.id}`}
+                  >
+                    <RotateCcw className={`w-3 h-3 mr-1 ${restartServiceMutation.isPending ? "animate-spin" : ""}`} />
+                    Restart
+                  </Button>
+                </CardContent>
+              </Card>
             ))}
           </div>
+        )}
 
-          {maintenanceTab === "logs" && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Button
-                  size="sm"
-                  onClick={() => maintenanceFacility && fetchLogs(maintenanceFacility.id, selectedLogFile || undefined)}
-                  disabled={isLoadingLogs}
-                  data-testid="button-fetch-logs"
-                >
-                  <Download className="w-3 h-3 mr-1" />
-                  {isLoadingLogs ? "Loading..." : "Fetch Logs"}
-                </Button>
-                {availableLogFiles.length > 0 && (
-                  <Select value={selectedLogFile} onValueChange={(v) => setSelectedLogFile(v)}>
-                    <SelectTrigger className="w-auto" data-testid="select-log-file">
-                      <SelectValue placeholder="Latest log file" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableLogFiles.map((f) => (
-                        <SelectItem key={f} value={f}>{f}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-              {logFileName && (
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{logFileName}</Badge>
-                  <span className="text-xs text-muted-foreground">{logLines.length} lines</span>
-                </div>
-              )}
-              <div
-                className="bg-muted rounded-md p-3 font-mono text-xs max-h-64 overflow-auto"
-                data-testid="container-log-viewer"
-              >
-                {logLines.length === 0 ? (
-                  <p className="text-muted-foreground">No logs loaded. Click "Fetch Logs" to retrieve facility logs.</p>
-                ) : (
-                  logLines.map((line, i) => {
-                    let parsed: any = null;
-                    try { parsed = JSON.parse(line); } catch {}
-                    const levelColor = parsed?.level === "ERROR"
-                      ? "text-red-500"
-                      : parsed?.level === "WARN"
-                        ? "text-amber-500"
-                        : "text-foreground";
-                    return (
-                      <div key={i} className={`whitespace-pre-wrap break-all ${levelColor}`} data-testid={`text-log-line-${i}`}>
-                        {parsed
-                          ? `[${parsed.timestamp?.slice(11, 19) || ""}] [${parsed.level}] ${parsed.source}: ${parsed.message}`
-                          : line}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
-
-          {maintenanceTab === "services" && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Restart individual services on the facility backend without a full redeploy.
-              </p>
-              {[
-                { id: "ai-engine", label: "AI Engine", desc: "Reset Gemini client connection", icon: Cpu },
-                { id: "inactivity-monitor", label: "Inactivity Monitor", desc: "Restart monitoring timers", icon: Clock },
-                { id: "websocket", label: "WebSocket", desc: "Refresh client connections", icon: Wifi },
-              ].map((svc) => (
-                <Card key={svc.id}>
-                  <CardContent className="flex items-center justify-between gap-3 py-3 px-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <svc.icon className="w-5 h-5 text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{svc.label}</p>
-                        <p className="text-xs text-muted-foreground">{svc.desc}</p>
-                      </div>
+        {maintenanceTab === "cache" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Clear specific caches or all caches on the facility backend.
+            </p>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={clearCacheMutation.isPending}
+              onClick={() => maintenanceFacility && clearCacheMutation.mutate({
+                facilityId: maintenanceFacility.id,
+                cache: "all",
+              })}
+              data-testid="button-clear-all-cache"
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              {clearCacheMutation.isPending ? "Clearing..." : "Clear All Caches"}
+            </Button>
+            {[
+              { id: "persona-cache", label: "AI Persona Cache", desc: "In-memory persona prompts for residents", icon: Cpu },
+              { id: "query-cache", label: "Query Cache", desc: "Application query results", icon: Database },
+              { id: "temp-files", label: "Temporary Files", desc: "Files in data/tmp directory", icon: HardDrive },
+            ].map((cache) => (
+              <Card key={cache.id}>
+                <CardContent className="flex items-center justify-between gap-3 py-3 px-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <cache.icon className="w-5 h-5 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{cache.label}</p>
+                      <p className="text-xs text-muted-foreground">{cache.desc}</p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={restartServiceMutation.isPending}
-                      onClick={() => maintenanceFacility && restartServiceMutation.mutate({
-                        facilityId: maintenanceFacility.id,
-                        service: svc.id,
-                      })}
-                      data-testid={`button-restart-${svc.id}`}
-                    >
-                      <RotateCcw className={`w-3 h-3 mr-1 ${restartServiceMutation.isPending ? "animate-spin" : ""}`} />
-                      Restart
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {maintenanceTab === "cache" && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Clear specific caches or all caches on the facility backend.
-              </p>
-              <Button
-                size="sm"
-                variant="destructive"
-                disabled={clearCacheMutation.isPending}
-                onClick={() => maintenanceFacility && clearCacheMutation.mutate({
-                  facilityId: maintenanceFacility.id,
-                  cache: "all",
-                })}
-                data-testid="button-clear-all-cache"
-              >
-                <Trash2 className="w-3 h-3 mr-1" />
-                {clearCacheMutation.isPending ? "Clearing..." : "Clear All Caches"}
-              </Button>
-              {[
-                { id: "persona-cache", label: "AI Persona Cache", desc: "In-memory persona prompts for residents", icon: Cpu },
-                { id: "query-cache", label: "Query Cache", desc: "Application query results", icon: Database },
-                { id: "temp-files", label: "Temporary Files", desc: "Files in data/tmp directory", icon: HardDrive },
-              ].map((cache) => (
-                <Card key={cache.id}>
-                  <CardContent className="flex items-center justify-between gap-3 py-3 px-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <cache.icon className="w-5 h-5 text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{cache.label}</p>
-                        <p className="text-xs text-muted-foreground">{cache.desc}</p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={clearCacheMutation.isPending}
-                      onClick={() => maintenanceFacility && clearCacheMutation.mutate({
-                        facilityId: maintenanceFacility.id,
-                        cache: cache.id,
-                      })}
-                      data-testid={`button-clear-${cache.id}`}
-                    >
-                      <Trash2 className="w-3 h-3 mr-1" />
-                      Clear
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {maintenanceTab === "diagnostics" && (
-            <div className="space-y-3">
-              <Button
-                size="sm"
-                onClick={() => maintenanceFacility && fetchDiagnostics(maintenanceFacility.id)}
-                disabled={isLoadingDiagnostics}
-                data-testid="button-fetch-diagnostics"
-              >
-                <Cpu className="w-3 h-3 mr-1" />
-                {isLoadingDiagnostics ? "Loading..." : "Run Diagnostics"}
-              </Button>
-              {diagnosticsData && (
-                <div className="grid grid-cols-2 gap-3">
-                  <Card>
-                    <CardContent className="py-3 px-4">
-                      <p className="text-xs text-muted-foreground">Uptime</p>
-                      <p className="text-lg font-bold" data-testid="text-diag-uptime">
-                        {Math.floor(diagnosticsData.uptime / 3600)}h {Math.floor((diagnosticsData.uptime % 3600) / 60)}m
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="py-3 px-4">
-                      <p className="text-xs text-muted-foreground">Memory (Heap)</p>
-                      <p className="text-lg font-bold" data-testid="text-diag-memory">
-                        {diagnosticsData.memoryUsage?.heapUsed}MB / {diagnosticsData.memoryUsage?.heapTotal}MB
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="py-3 px-4">
-                      <p className="text-xs text-muted-foreground">Node Version</p>
-                      <p className="text-sm font-medium" data-testid="text-diag-node">{diagnosticsData.nodeVersion}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="py-3 px-4">
-                      <p className="text-xs text-muted-foreground">Log Files</p>
-                      <p className="text-lg font-bold" data-testid="text-diag-logs">{diagnosticsData.logFileCount}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="py-3 px-4">
-                      <p className="text-xs text-muted-foreground">RSS Memory</p>
-                      <p className="text-lg font-bold">{diagnosticsData.memoryUsage?.rss}MB</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="py-3 px-4">
-                      <p className="text-xs text-muted-foreground">PID</p>
-                      <p className="text-sm font-medium">{diagnosticsData.pid}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-            </div>
-          )}
-
-          {maintenanceHistory.length > 0 && (
-            <div className="space-y-2 pt-2 border-t">
-              <p className="text-xs font-medium text-muted-foreground">Recent Maintenance Activity</p>
-              <div className="space-y-1 max-h-32 overflow-auto">
-                {maintenanceHistory.map((log: any) => (
-                  <div key={log.id} className="flex items-center justify-between gap-2 text-xs" data-testid={`text-maint-log-${log.id}`}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Badge variant={log.status === "completed" ? "default" : "destructive"} className="text-[10px]">
-                        {log.action}
-                      </Badge>
-                      <span className="text-muted-foreground truncate">{log.command}</span>
-                    </div>
-                    <span className="text-muted-foreground shrink-0">
-                      {new Date(log.createdAt).toLocaleTimeString()}
-                    </span>
                   </div>
-                ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={clearCacheMutation.isPending}
+                    onClick={() => maintenanceFacility && clearCacheMutation.mutate({
+                      facilityId: maintenanceFacility.id,
+                      cache: cache.id,
+                    })}
+                    data-testid={`button-clear-${cache.id}`}
+                  >
+                    <Trash2 className="w-3 h-3 mr-1" />
+                    Clear
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {maintenanceTab === "diagnostics" && (
+          <div className="space-y-3">
+            <Button
+              size="sm"
+              onClick={() => maintenanceFacility && fetchDiagnostics(maintenanceFacility.id)}
+              disabled={isLoadingDiagnostics}
+              data-testid="button-fetch-diagnostics"
+            >
+              <Cpu className="w-3 h-3 mr-1" />
+              {isLoadingDiagnostics ? "Loading..." : "Run Diagnostics"}
+            </Button>
+            {diagnosticsData && (
+              <div className="grid grid-cols-2 gap-3">
+                <Card>
+                  <CardContent className="py-3 px-4">
+                    <p className="text-xs text-muted-foreground">Uptime</p>
+                    <p className="text-lg font-bold" data-testid="text-diag-uptime">
+                      {Math.floor(diagnosticsData.uptime / 3600)}h {Math.floor((diagnosticsData.uptime % 3600) / 60)}m
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-3 px-4">
+                    <p className="text-xs text-muted-foreground">Memory (Heap)</p>
+                    <p className="text-lg font-bold" data-testid="text-diag-memory">
+                      {diagnosticsData.memoryUsage?.heapUsed}MB / {diagnosticsData.memoryUsage?.heapTotal}MB
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-3 px-4">
+                    <p className="text-xs text-muted-foreground">Node Version</p>
+                    <p className="text-sm font-medium" data-testid="text-diag-node">{diagnosticsData.nodeVersion}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-3 px-4">
+                    <p className="text-xs text-muted-foreground">Log Files</p>
+                    <p className="text-lg font-bold" data-testid="text-diag-logs">{diagnosticsData.logFileCount}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-3 px-4">
+                    <p className="text-xs text-muted-foreground">RSS Memory</p>
+                    <p className="text-lg font-bold">{diagnosticsData.memoryUsage?.rss}MB</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-3 px-4">
+                    <p className="text-xs text-muted-foreground">PID</p>
+                    <p className="text-sm font-medium">{diagnosticsData.pid}</p>
+                  </CardContent>
+                </Card>
               </div>
+            )}
+          </div>
+        )}
+
+        {maintenanceHistory.length > 0 && (
+          <div className="space-y-2 pt-2 border-t">
+            <p className="text-xs font-medium text-muted-foreground">Recent Maintenance Activity</p>
+            <div className="space-y-1 max-h-32 overflow-auto">
+              {maintenanceHistory.map((log: any) => (
+                <div key={log.id} className="flex items-center justify-between gap-2 text-xs" data-testid={`text-maint-log-${log.id}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge variant={log.status === "completed" ? "default" : "destructive"} className="text-[10px]">
+                      {log.action}
+                    </Badge>
+                    <span className="text-muted-foreground truncate">{log.command}</span>
+                  </div>
+                  <span className="text-muted-foreground shrink-0">
+                    {new Date(log.createdAt).toLocaleTimeString()}
+                  </span>
+                </div>
+              ))}
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
