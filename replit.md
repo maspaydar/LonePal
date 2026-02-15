@@ -4,6 +4,15 @@
 Multi-tenant AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensor webhooks with Google Gemini 1.5 Flash AI for scenario-based inactivity detection and personalized check-ins.
 
 ## Recent Changes
+- **2026-02-15**: Phase 2 Per-Unit Hardware & Device Mapping
+  - New `units` table: unitIdentifier, entityId, smartSpeakerId, floor, label, isActive
+  - Residents and sensors now have unitId FK for unit assignment
+  - Entity-level Gemini API key isolation via `geminiApiKey` column on entities table
+  - AI engine uses getAIForEntity() to check entity-specific key before falling back to global GEMINI_API_KEY
+  - ADT webhook updated: sensor → unit → resident routing (motion in Apt-402 triggers only for that unit's resident)
+  - Unit Management API: CRUD at /api/entities/:entityId/units, assign/unassign resident and sensor endpoints
+  - Unit Management Dashboard UI page at /units with unit cards, resident assignment, sensor assignment, smart speaker display
+  - Sidebar navigation updated with "Units" link
 - **2026-02-15**: Phase 8 Remote Diagnostic & Maintenance Tunnel
   - HMAC-signed maintenance API at /api/maintenance/* (signature + timestamp verification, 5min window)
   - Log Retrieval: Fetch last N lines from any log file, list available log files

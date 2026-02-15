@@ -8,6 +8,7 @@ import {
   Activity,
   Radio,
   Zap,
+  Building2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -30,6 +31,7 @@ const navItems = [
   { title: "Alerts", url: "/alerts", icon: Bell },
   { title: "Activity Log", url: "/activity", icon: Activity },
   { title: "Sensors", url: "/sensors", icon: Radio },
+  { title: "Units", url: "/units", icon: Building2 },
 ];
 
 const configItems = [

@@ -4,6 +4,7 @@ import type { Resident, ScenarioConfig, ActiveScenario } from "@shared/schema";
 import { log } from "./index";
 
 let _ai: GoogleGenAI | null = null;
+const _entityAiClients = new Map<number, GoogleGenAI>();
 
 function getAI(): GoogleGenAI | null {
   if (!process.env.GEMINI_API_KEY) return null;
@@ -11,6 +12,21 @@ function getAI(): GoogleGenAI | null {
     _ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
   return _ai;
+}
+
+async function getAIForEntity(entityId: number): Promise<GoogleGenAI | null> {
+  const entity = await storage.getEntity(entityId);
+  if (entity?.geminiApiKey) {
+    if (!_entityAiClients.has(entityId)) {
+      _entityAiClients.set(entityId, new GoogleGenAI({ apiKey: entity.geminiApiKey }));
+    }
+    return _entityAiClients.get(entityId)!;
+  }
+  return getAI();
+}
+
+export function clearEntityAiClient(entityId: number): void {
+  _entityAiClients.delete(entityId);
 }
 
 function getModelName() {
@@ -166,12 +182,13 @@ export async function generateAICheckIn(
   triggerLocation?: string | null,
   conversationHistory?: { role: string; content: string }[]
 ): Promise<string> {
-  if (!process.env.GEMINI_API_KEY) {
-    log("GEMINI_API_KEY not set, returning placeholder response", "ai-engine");
-    return getPlaceholderResponse(resident, scenarioType, escalationLevel);
-  }
-
   try {
+    const aiClient = await getAIForEntity(resident.entityId);
+    if (!aiClient) {
+      log("No Gemini API key set (global or entity-level), returning placeholder response", "ai-engine");
+      return getPlaceholderResponse(resident, scenarioType, escalationLevel);
+    }
+
     const personaPrompt = getCachedPersonaPrompt(resident);
     const scenarioPrompt = getScenarioPrompt(scenarioType, escalationLevel, resident, triggerLocation);
 
@@ -193,9 +210,6 @@ export async function generateAICheckIn(
       role: "user",
       parts: [{ text: "Please generate the check-in message for this scenario." }],
     });
-
-    const aiClient = getAI();
-    if (!aiClient) return getPlaceholderResponse(resident, scenarioType, escalationLevel);
 
     const response = await aiClient.models.generateContent({
       model: getModelName(),
@@ -220,15 +234,16 @@ export async function processResidentResponse(
   userMessage: string,
   conversationHistory: { role: string; content: string }[]
 ): Promise<{ aiResponse: string; isResolved: boolean; shouldEscalate: boolean }> {
-  if (!process.env.GEMINI_API_KEY) {
-    return {
-      aiResponse: `Thank you for responding, ${resident.preferredName || resident.firstName}. I'm glad to hear from you!`,
-      isResolved: true,
-      shouldEscalate: false,
-    };
-  }
-
   try {
+    const aiClient = await getAIForEntity(resident.entityId);
+    if (!aiClient) {
+      return {
+        aiResponse: `Thank you for responding, ${resident.preferredName || resident.firstName}. I'm glad to hear from you!`,
+        isResolved: true,
+        shouldEscalate: false,
+      };
+    }
+
     const personaPrompt = getCachedPersonaPrompt(resident);
     const ctx = buildConversationContext(conversationHistory);
 
@@ -244,15 +259,6 @@ Based on their response, determine:
 
 Respond in this exact JSON format:
 {"safe": true/false, "needsHelp": true/false, "response": "your caring response here"}`;
-
-    const aiClient = getAI();
-    if (!aiClient) {
-      return {
-        aiResponse: `Thank you for responding, ${resident.preferredName || resident.firstName}. I'm glad to hear from you!`,
-        isResolved: true,
-        shouldEscalate: false,
-      };
-    }
 
     const contents: any[] = [];
     for (const msg of ctx) {
@@ -304,7 +310,7 @@ export async function streamCompanionResponse(
   conversationHistory: { role: string; content: string }[],
   onChunk: (text: string) => void
 ): Promise<{ fullResponse: string; isResolved: boolean; shouldEscalate: boolean }> {
-  const aiClient = getAI();
+  const aiClient = await getAIForEntity(resident.entityId);
   if (!aiClient) {
     const fallback = `Thank you for responding, ${resident.preferredName || resident.firstName}. I'm glad to hear from you!`;
     onChunk(fallback);
@@ -380,8 +386,8 @@ SAFETY_CHECK: {"safe": true/false, "needsHelp": true/false}`;
   }
 }
 
-export async function transcribeAudio(audioBase64: string, mimeType: string = "audio/webm"): Promise<string> {
-  const aiClient = getAI();
+export async function transcribeAudio(audioBase64: string, mimeType: string = "audio/webm", entityId?: number): Promise<string> {
+  const aiClient = entityId ? await getAIForEntity(entityId) : getAI();
   if (!aiClient) {
     throw new Error("AI not available for transcription");
   }

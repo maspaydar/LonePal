@@ -1,6 +1,7 @@
 import {
   type User, type InsertUser,
   type Entity, type InsertEntity,
+  type Unit, type InsertUnit,
   type Resident, type InsertResident,
   type Sensor, type InsertSensor,
   type MotionEvent, type InsertMotionEvent,
@@ -15,7 +16,7 @@ import {
   type Facility, type InsertFacility,
   type FacilityHealthLog, type InsertFacilityHealthLog,
   type MaintenanceLog, type InsertMaintenanceLog,
-  users, entities, residents, sensors, motionEvents,
+  users, entities, residents, sensors, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
   maintenanceLogs,
@@ -32,6 +33,15 @@ export interface IStorage {
   getEntity(id: number): Promise<Entity | undefined>;
   createEntity(entity: InsertEntity): Promise<Entity>;
   updateEntity(id: number, data: Partial<InsertEntity>): Promise<Entity | undefined>;
+
+  getUnits(entityId: number): Promise<Unit[]>;
+  getUnit(id: number): Promise<Unit | undefined>;
+  getUnitByIdentifier(entityId: number, unitIdentifier: string): Promise<Unit | undefined>;
+  createUnit(unit: InsertUnit): Promise<Unit>;
+  updateUnit(id: number, data: Partial<InsertUnit>): Promise<Unit | undefined>;
+  deleteUnit(id: number): Promise<void>;
+  getSensorsByUnit(unitId: number): Promise<Sensor[]>;
+  getResidentByUnit(unitId: number): Promise<Resident | undefined>;
 
   getResidents(entityId: number): Promise<Resident[]>;
   getResident(id: number): Promise<Resident | undefined>;
@@ -143,6 +153,47 @@ export class DatabaseStorage implements IStorage {
   async updateEntity(id: number, data: Partial<InsertEntity>): Promise<Entity | undefined> {
     const [updated] = await db.update(entities).set(data).where(eq(entities.id, id)).returning();
     return updated;
+  }
+
+  async getUnits(entityId: number): Promise<Unit[]> {
+    return db.select().from(units).where(eq(units.entityId, entityId)).orderBy(units.unitIdentifier);
+  }
+
+  async getUnit(id: number): Promise<Unit | undefined> {
+    const [unit] = await db.select().from(units).where(eq(units.id, id));
+    return unit;
+  }
+
+  async getUnitByIdentifier(entityId: number, unitIdentifier: string): Promise<Unit | undefined> {
+    const [unit] = await db.select().from(units)
+      .where(and(eq(units.entityId, entityId), eq(units.unitIdentifier, unitIdentifier)));
+    return unit;
+  }
+
+  async createUnit(unit: InsertUnit): Promise<Unit> {
+    const [created] = await db.insert(units).values(unit).returning();
+    return created;
+  }
+
+  async updateUnit(id: number, data: Partial<InsertUnit>): Promise<Unit | undefined> {
+    const [updated] = await db.update(units).set(data).where(eq(units.id, id)).returning();
+    return updated;
+  }
+
+  async deleteUnit(id: number): Promise<void> {
+    await db.update(residents).set({ unitId: null } as any).where(eq(residents.unitId, id));
+    await db.update(sensors).set({ unitId: null } as any).where(eq(sensors.unitId, id));
+    await db.delete(units).where(eq(units.id, id));
+  }
+
+  async getSensorsByUnit(unitId: number): Promise<Sensor[]> {
+    return db.select().from(sensors).where(eq(sensors.unitId, unitId));
+  }
+
+  async getResidentByUnit(unitId: number): Promise<Resident | undefined> {
+    const [resident] = await db.select().from(residents)
+      .where(and(eq(residents.unitId, unitId), eq(residents.isActive, true)));
+    return resident;
   }
 
   async getResidents(entityId: number): Promise<Resident[]> {

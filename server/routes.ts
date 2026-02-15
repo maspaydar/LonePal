@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { WebSocketServer, WebSocket } from "ws";
-import { generateAICheckIn, processResidentResponse, streamCompanionResponse, transcribeAudio, buildConversationContext } from "./ai-engine";
-import { insertEntitySchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema, mobileLoginSchema } from "@shared/schema";
+import { generateAICheckIn, processResidentResponse, streamCompanionResponse, transcribeAudio, buildConversationContext, clearEntityAiClient } from "./ai-engine";
+import { insertEntitySchema, insertUnitSchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema, mobileLoginSchema } from "@shared/schema";
 import { log } from "./index";
 import { provisionEntityFolder } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
@@ -21,6 +21,7 @@ import maintenanceRouter from "./routes/maintenance";
 
 let wss: WebSocketServer;
 let _insightsAI: GoogleGenAI | null = null;
+const _entityInsightsAI = new Map<number, GoogleGenAI>();
 
 function getAIForInsights(): GoogleGenAI | null {
   if (!process.env.GEMINI_API_KEY) return null;
@@ -28,6 +29,17 @@ function getAIForInsights(): GoogleGenAI | null {
     _insightsAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
   return _insightsAI;
+}
+
+async function getAIForInsightsEntity(entityId: number): Promise<GoogleGenAI | null> {
+  const entity = await storage.getEntity(entityId);
+  if (entity?.geminiApiKey) {
+    if (!_entityInsightsAI.has(entityId)) {
+      _entityInsightsAI.set(entityId, new GoogleGenAI({ apiKey: entity.geminiApiKey }));
+    }
+    return _entityInsightsAI.get(entityId)!;
+  }
+  return getAIForInsights();
 }
 
 function broadcastToClients(data: any) {
@@ -112,8 +124,13 @@ export async function registerRoutes(
   });
 
   app.patch("/api/entities/:id", async (req, res) => {
-    const updated = await storage.updateEntity(Number(req.params.id), req.body);
+    const entityId = Number(req.params.id);
+    const updated = await storage.updateEntity(entityId, req.body);
     if (!updated) return res.status(404).json({ error: "Entity not found" });
+    if (req.body.geminiApiKey !== undefined) {
+      clearEntityAiClient(entityId);
+      _entityInsightsAI.delete(entityId);
+    }
     res.json(updated);
   });
 
@@ -191,17 +208,23 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Unknown sensor device" });
       }
 
+      let residentId = sensor.residentId;
+      if (!residentId && sensor.unitId) {
+        const unitResident = await storage.getResidentByUnit(sensor.unitId);
+        if (unitResident) residentId = unitResident.id;
+      }
+
       const motionEvent = await storage.createMotionEvent({
         entityId: sensor.entityId,
         sensorId: sensor.id,
-        residentId: sensor.residentId,
+        residentId,
         eventType,
         location: sensor.location,
         rawPayload: req.body,
       });
 
-      if (sensor.residentId) {
-        await storage.updateResidentStatus(sensor.residentId, "safe", new Date());
+      if (residentId) {
+        await storage.updateResidentStatus(residentId, "safe", new Date());
       }
 
       broadcastToClients({
@@ -209,7 +232,7 @@ export async function registerRoutes(
         data: motionEvent,
       });
 
-      log(`ADT event: ${eventType} from ${deviceId} at ${sensor.location}`, "webhook");
+      log(`ADT event: ${eventType} from ${deviceId} at ${sensor.location} (unit=${sensor.unitId || 'none'})`, "webhook");
       res.json({ received: true, eventId: motionEvent.id });
     } catch (error) {
       log(`Webhook error: ${error}`, "webhook");
@@ -417,7 +440,7 @@ export async function registerRoutes(
 
       if (audioBase64 && !userMessage) {
         try {
-          userMessage = await transcribeAudio(audioBase64, audioMimeType || "audio/m4a");
+          userMessage = await transcribeAudio(audioBase64, audioMimeType || "audio/m4a", entityId);
         } catch (err) {
           return res.status(400).json({ error: "Could not understand audio. Please try again." });
         }
@@ -653,6 +676,114 @@ export async function registerRoutes(
     }
   });
 
+  // --- Unit Management API ---
+  app.get("/api/entities/:entityId/units", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const unitList = await storage.getUnits(entityId);
+      const enriched = await Promise.all(unitList.map(async (unit) => {
+        const unitSensors = await storage.getSensorsByUnit(unit.id);
+        const resident = await storage.getResidentByUnit(unit.id);
+        return { ...unit, sensors: unitSensors, resident: resident || null };
+      }));
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch units" });
+    }
+  });
+
+  app.post("/api/entities/:entityId/units", async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const parsed = insertUnitSchema.parse({ ...req.body, entityId });
+
+      const existing = await storage.getUnitByIdentifier(entityId, parsed.unitIdentifier);
+      if (existing) return res.status(409).json({ error: `Unit ${parsed.unitIdentifier} already exists` });
+
+      const unit = await storage.createUnit(parsed);
+      res.status(201).json(unit);
+    } catch (error: any) {
+      if (error.name === "ZodError") return res.status(400).json({ error: error.errors });
+      res.status(500).json({ error: "Failed to create unit" });
+    }
+  });
+
+  app.put("/api/entities/:entityId/units/:unitId", async (req, res) => {
+    try {
+      const { unitIdentifier, label, smartSpeakerId, floor, isActive } = req.body;
+      const updated = await storage.updateUnit(Number(req.params.unitId), { unitIdentifier, label, smartSpeakerId, floor, isActive });
+      if (!updated) return res.status(404).json({ error: "Unit not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update unit" });
+    }
+  });
+
+  app.delete("/api/entities/:entityId/units/:unitId", async (req, res) => {
+    try {
+      await storage.deleteUnit(Number(req.params.unitId));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete unit" });
+    }
+  });
+
+  app.post("/api/entities/:entityId/units/:unitId/assign-resident", async (req, res) => {
+    try {
+      const unitId = Number(req.params.unitId);
+      const { residentId } = req.body;
+      if (!residentId) return res.status(400).json({ error: "residentId is required" });
+
+      const unit = await storage.getUnit(unitId);
+      if (!unit) return res.status(404).json({ error: "Unit not found" });
+
+      const updated = await storage.updateResident(residentId, { unitId });
+      if (!updated) return res.status(404).json({ error: "Resident not found" });
+
+      const unitSensors = await storage.getSensorsByUnit(unitId);
+      for (const sensor of unitSensors) {
+        await storage.updateSensor(sensor.id, { residentId });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to assign resident" });
+    }
+  });
+
+  app.post("/api/entities/:entityId/units/:unitId/assign-sensor", async (req, res) => {
+    try {
+      const unitId = Number(req.params.unitId);
+      const { sensorId } = req.body;
+      if (!sensorId) return res.status(400).json({ error: "sensorId is required" });
+
+      const unit = await storage.getUnit(unitId);
+      if (!unit) return res.status(404).json({ error: "Unit not found" });
+
+      const resident = await storage.getResidentByUnit(unitId);
+      const updateData: any = { unitId };
+      if (resident) updateData.residentId = resident.id;
+
+      const updated = await storage.updateSensor(sensorId, updateData);
+      if (!updated) return res.status(404).json({ error: "Sensor not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to assign sensor" });
+    }
+  });
+
+  app.post("/api/entities/:entityId/units/:unitId/unassign-sensor", async (req, res) => {
+    try {
+      const { sensorId } = req.body;
+      if (!sensorId) return res.status(400).json({ error: "sensorId is required" });
+      const updated = await storage.updateSensor(sensorId, { unitId: null, residentId: null } as any);
+      if (!updated) return res.status(404).json({ error: "Sensor not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to unassign sensor" });
+    }
+  });
+
   // --- Chat API ---
   app.post("/api/chat/:entityId/:userId", async (req, res) => {
     try {
@@ -749,7 +880,7 @@ export async function registerRoutes(
 
           if (userMsgs.length > 0) {
             const combined = userMsgs.map(m => m.content).join(" ");
-            const ai = getAIForInsights();
+            const ai = await getAIForInsightsEntity(entityId);
 
             if (ai) {
               try {

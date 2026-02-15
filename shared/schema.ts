@@ -21,6 +21,18 @@ export const entities = pgTable("entities", {
   address: text("address"),
   contactPhone: text("contact_phone"),
   contactEmail: text("contact_email"),
+  geminiApiKey: text("gemini_api_key"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const units = pgTable("units", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").notNull(),
+  unitIdentifier: text("unit_identifier").notNull(),
+  label: text("label"),
+  smartSpeakerId: text("smart_speaker_id"),
+  floor: text("floor"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
@@ -28,6 +40,7 @@ export const entities = pgTable("entities", {
 export const residents = pgTable("residents", {
   id: serial("id").primaryKey(),
   entityId: integer("entity_id").notNull(),
+  unitId: integer("unit_id"),
   anonymousUsername: text("anonymous_username"),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
@@ -50,6 +63,7 @@ export const residents = pgTable("residents", {
 export const sensors = pgTable("sensors", {
   id: serial("id").primaryKey(),
   entityId: integer("entity_id").notNull(),
+  unitId: integer("unit_id"),
   residentId: integer("resident_id"),
   sensorType: text("sensor_type").notNull().default("motion"),
   location: text("location").notNull(),
@@ -137,6 +151,7 @@ export const messages = pgTable("messages", {
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertEntitySchema = createInsertSchema(entities).omit({ id: true, createdAt: true });
+export const insertUnitSchema = createInsertSchema(units).omit({ id: true, createdAt: true });
 export const insertResidentSchema = createInsertSchema(residents).omit({ id: true, createdAt: true, lastActivityAt: true });
 export const insertSensorSchema = createInsertSchema(sensors).omit({ id: true, createdAt: true });
 export const insertMotionEventSchema = createInsertSchema(motionEvents).omit({ id: true, createdAt: true });
@@ -246,6 +261,8 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Entity = typeof entities.$inferSelect;
 export type InsertEntity = z.infer<typeof insertEntitySchema>;
+export type Unit = typeof units.$inferSelect;
+export type InsertUnit = z.infer<typeof insertUnitSchema>;
 export type Resident = typeof residents.$inferSelect;
 export type InsertResident = z.infer<typeof insertResidentSchema>;
 export type Sensor = typeof sensors.$inferSelect;

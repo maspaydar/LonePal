@@ -21,6 +21,7 @@ import Sensors from "@/pages/sensors";
 import ScenarioConfig from "@/pages/scenario-config";
 import SettingsPage from "@/pages/settings";
 import ConversationDetail from "@/pages/conversation-detail";
+import Units from "@/pages/units";
 import SuperAdminLogin from "@/pages/super-admin-login";
 import SuperAdminDashboard from "@/pages/super-admin-dashboard";
 
@@ -34,6 +35,7 @@ function AdminRouter() {
       <Route path="/alerts" component={Alerts} />
       <Route path="/activity" component={ActivityLog} />
       <Route path="/sensors" component={Sensors} />
+      <Route path="/units" component={Units} />
       <Route path="/scenario-config" component={ScenarioConfig} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/conversations/:id" component={ConversationDetail} />
