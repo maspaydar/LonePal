@@ -42,6 +42,7 @@ import {
   Speaker,
   Zap,
   Eye,
+  Copy,
 } from "lucide-react";
 import {
   Dialog,
@@ -742,15 +743,39 @@ function ProvisionCompanyPanel() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs text-muted-foreground">Username</span>
-                      <code className="text-sm font-mono font-bold" data-testid="text-provision-username">
-                        {result.defaultAdminCredentials.username}
-                      </code>
+                      <div className="flex items-center gap-1">
+                        <code className="text-sm font-mono font-bold" data-testid="text-provision-username">
+                          {result.defaultAdminCredentials.username}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => { navigator.clipboard.writeText(result.defaultAdminCredentials.username); toast({ title: "Copied username" }); }}
+                          data-testid="button-copy-username"
+                          title="Copy username"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs text-muted-foreground">Password</span>
-                      <code className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400" data-testid="text-provision-password">
-                        {result.defaultAdminCredentials.password}
-                      </code>
+                      <div className="flex items-center gap-1">
+                        <code className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400" data-testid="text-provision-password">
+                          {result.defaultAdminCredentials.password}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => { navigator.clipboard.writeText(result.defaultAdminCredentials.password); toast({ title: "Copied password" }); }}
+                          data-testid="button-copy-password"
+                          title="Copy password"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -794,9 +819,37 @@ function ProvisionCompanyPanel() {
   );
 }
 
-function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacility, setShowAddFacility, newFacility, setNewFacility, addFacilityMutation, deleteFacilityMutation, updateFacilityMutation, openMaintenance, setSelectedFacility, setShowConfigDialog }: any) {
+interface NewFacilityForm {
+  facilityId: string;
+  name: string;
+  address: string;
+  contactEmail: string;
+  contactPhone: string;
+  installationUrl: string;
+  status: string;
+  geminiApiKey: string;
+}
+
+interface RegistryPanelProps {
+  dashData: DashboardData | undefined;
+  facilities: Facility[] | undefined;
+  healthCheckMutation: { mutate: () => void; isPending: boolean };
+  showAddFacility: boolean;
+  setShowAddFacility: (v: boolean) => void;
+  newFacility: NewFacilityForm;
+  setNewFacility: (v: NewFacilityForm) => void;
+  addFacilityMutation: { mutate: () => void; isPending: boolean };
+  deleteFacilityMutation: { mutate: (id: number) => void; isPending: boolean };
+  updateFacilityMutation: { mutate: (args: { id: number; data: Record<string, string> }) => void; isPending: boolean };
+  openMaintenance: (facility: Facility) => void;
+  setSelectedFacility: (facility: Facility) => void;
+  setShowConfigDialog: (v: boolean) => void;
+}
+
+function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacility, setShowAddFacility, newFacility, setNewFacility, addFacilityMutation, deleteFacilityMutation, updateFacilityMutation, openMaintenance, setSelectedFacility, setShowConfigDialog }: RegistryPanelProps) {
   const { toast } = useToast();
-  const [facilityHealthResults, setFacilityHealthResults] = useState<Record<number, { status: string; responseTimeMs?: number; loading?: boolean }>>({});
+  const { logout } = useSuperAdminAuth();
+  const [facilityHealthResults, setFacilityHealthResults] = useState<Record<number, { status: string; responseTimeMs?: number; loading?: boolean }>>({}); 
 
   async function checkFacilityHealth(facility: Facility) {
     setFacilityHealthResults(prev => ({ ...prev, [facility.id]: { ...prev[facility.id], loading: true, status: "checking" } }));
@@ -805,6 +858,10 @@ function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacil
         method: "POST",
         headers: authHeaders(),
       });
+      if (res.status === 401 || res.status === 403) {
+        logout();
+        return;
+      }
       const data = await res.json();
       setFacilityHealthResults(prev => ({ ...prev, [facility.id]: { loading: false, status: data.status, responseTimeMs: data.responseTimeMs } }));
       toast({
