@@ -693,8 +693,12 @@ export async function registerRoutes(
 
   app.put("/api/entities/:entityId/units/:unitId", async (req, res) => {
     try {
+      const entityId = Number(req.params.entityId);
+      const unitId = Number(req.params.unitId);
+      const existing = await storage.getUnit(unitId);
+      if (!existing || existing.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
       const { unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac } = req.body;
-      const updated = await storage.updateUnit(Number(req.params.unitId), {
+      const updated = await storage.updateUnit(unitId, {
         unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac,
       });
       if (!updated) return res.status(404).json({ error: "Unit not found" });
@@ -706,7 +710,11 @@ export async function registerRoutes(
 
   app.delete("/api/entities/:entityId/units/:unitId", async (req, res) => {
     try {
-      await storage.deleteUnit(Number(req.params.unitId));
+      const entityId = Number(req.params.entityId);
+      const unitId = Number(req.params.unitId);
+      const existing = await storage.getUnit(unitId);
+      if (!existing || existing.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
+      await storage.deleteUnit(unitId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete unit" });
@@ -715,12 +723,16 @@ export async function registerRoutes(
 
   app.post("/api/entities/:entityId/units/:unitId/assign-resident", async (req, res) => {
     try {
+      const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
       const { residentId } = req.body;
       if (!residentId) return res.status(400).json({ error: "residentId is required" });
 
       const unit = await storage.getUnit(unitId);
-      if (!unit) return res.status(404).json({ error: "Unit not found" });
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
+
+      const resident = await storage.getResident(residentId);
+      if (!resident || resident.entityId !== entityId) return res.status(403).json({ error: "Resident does not belong to this entity" });
 
       const updated = await storage.updateResident(residentId, { unitId });
       if (!updated) return res.status(404).json({ error: "Resident not found" });
@@ -738,12 +750,16 @@ export async function registerRoutes(
 
   app.post("/api/entities/:entityId/units/:unitId/assign-sensor", async (req, res) => {
     try {
+      const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
       const { sensorId } = req.body;
       if (!sensorId) return res.status(400).json({ error: "sensorId is required" });
 
       const unit = await storage.getUnit(unitId);
-      if (!unit) return res.status(404).json({ error: "Unit not found" });
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
+
+      const sensor = await storage.getSensor(sensorId);
+      if (!sensor || sensor.entityId !== entityId) return res.status(403).json({ error: "Sensor does not belong to this entity" });
 
       const resident = await storage.getResidentByUnit(unitId);
       const updateData: any = { unitId };
@@ -759,8 +775,17 @@ export async function registerRoutes(
 
   app.post("/api/entities/:entityId/units/:unitId/unassign-sensor", async (req, res) => {
     try {
+      const entityId = Number(req.params.entityId);
+      const unitId = Number(req.params.unitId);
       const { sensorId } = req.body;
       if (!sensorId) return res.status(400).json({ error: "sensorId is required" });
+
+      const unit = await storage.getUnit(unitId);
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
+
+      const sensor = await storage.getSensor(sensorId);
+      if (!sensor || sensor.entityId !== entityId) return res.status(403).json({ error: "Sensor does not belong to this entity" });
+
       const updated = await storage.updateSensor(sensorId, { unitId: null, residentId: null } as any);
       if (!updated) return res.status(404).json({ error: "Sensor not found" });
       res.json(updated);
@@ -1041,7 +1066,10 @@ export async function registerRoutes(
 
   app.get("/api/entities/:entityId/units/:unitId/speaker/events", async (req, res) => {
     try {
+      const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
+      const unit = await storage.getUnit(unitId);
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
       const limit = Number(req.query.limit) || 20;
       const events = await storage.getSpeakerEvents(unitId, limit);
       res.json(events);
@@ -1055,11 +1083,17 @@ export async function registerRoutes(
   });
 
   app.get("/api/speaker/health/:speakerId", requireCompanyAuth, async (req, res) => {
-    const unit = await storage.getUnitByEsp32Mac(req.params.speakerId);
-    if (!unit || unit.entityId !== req.companyUser!.entityId) {
+    const speakerId = req.params.speakerId as string;
+    const entityId = req.companyUser!.entityId;
+    let unit = await storage.getUnitByEsp32Mac(speakerId);
+    if (!unit) {
+      const entityUnits = await storage.getUnits(entityId);
+      unit = entityUnits.find(u => u.smartSpeakerId === speakerId) as typeof unit;
+    }
+    if (!unit || unit.entityId !== entityId) {
       return res.status(403).json({ error: "Access denied" });
     }
-    const health = getSpeakerHealth(req.params.speakerId);
+    const health = getSpeakerHealth(speakerId);
     res.json(health);
   });
 
@@ -1093,7 +1127,10 @@ export async function registerRoutes(
 
   app.get("/api/entities/:entityId/units/:unitId/pairing-codes", async (req, res) => {
     try {
+      const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
+      const unit = await storage.getUnit(unitId);
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
       const codes = await storage.getDevicePairingCodesForUnit(unitId);
       res.json(codes);
     } catch (error) {
