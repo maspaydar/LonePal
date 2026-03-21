@@ -60,6 +60,7 @@ export interface IStorage {
   updateResidentStatus(id: number, status: string, lastActivityAt?: Date): Promise<void>;
 
   getSensors(entityId: number): Promise<Sensor[]>;
+  getSensor(id: number): Promise<Sensor | undefined>;
   getSensorByAdtId(adtDeviceId: string): Promise<Sensor | undefined>;
   getSensorByEsp32Mac(deviceMac: string): Promise<Sensor | undefined>;
   createSensor(sensor: InsertSensor): Promise<Sensor>;
@@ -89,6 +90,7 @@ export interface IStorage {
   resolveActiveScenario(id: number, resolvedBy: string): Promise<void>;
 
   getAlerts(entityId: number, limit?: number): Promise<Alert[]>;
+  getAlert(id: number): Promise<Alert | undefined>;
   getUnreadAlerts(entityId: number): Promise<Alert[]>;
   createAlert(alert: InsertAlert): Promise<Alert>;
   acknowledgeAlert(id: number, acknowledgedBy: string): Promise<void>;
@@ -277,6 +279,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(sensors).where(eq(sensors.entityId, entityId));
   }
 
+  async getSensor(id: number): Promise<Sensor | undefined> {
+    const [sensor] = await db.select().from(sensors).where(eq(sensors.id, id));
+    return sensor;
+  }
+
   async getSensorByAdtId(adtDeviceId: string): Promise<Sensor | undefined> {
     const [sensor] = await db.select().from(sensors).where(eq(sensors.adtDeviceId, adtDeviceId));
     return sensor;
@@ -397,6 +404,11 @@ export class DatabaseStorage implements IStorage {
 
   async getAlerts(entityId: number, limit = 50): Promise<Alert[]> {
     return db.select().from(alerts).where(eq(alerts.entityId, entityId)).orderBy(desc(alerts.createdAt)).limit(limit);
+  }
+
+  async getAlert(id: number): Promise<Alert | undefined> {
+    const [alert] = await db.select().from(alerts).where(eq(alerts.id, id));
+    return alert;
   }
 
   async getUnreadAlerts(entityId: number): Promise<Alert[]> {

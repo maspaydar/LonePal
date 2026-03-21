@@ -17,6 +17,7 @@ import { GoogleGenAI } from "@google/genai";
 import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth";
 import { requireCompanyAuth, requireCompanyAdmin } from "./middleware/company-auth";
+import { superAdminAuthMiddleware } from "./middleware/super-admin-auth";
 import superAdminRouter from "./routes/super-admin/index";
 import maintenanceRouter from "./routes/maintenance";
 import esp32Router from "./routes/iot/index";
@@ -222,7 +223,7 @@ export async function registerRoutes(
     res.json(entity);
   });
 
-  app.post("/api/entities", async (req, res) => {
+  app.post("/api/entities", superAdminAuthMiddleware, async (req, res) => {
     const parsed = insertEntitySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     const entity = await storage.createEntity(parsed.data);
@@ -268,9 +269,10 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get("/api/residents/:id", async (req, res) => {
+  app.get("/api/residents/:id", requireCompanyAuth, async (req, res) => {
     const resident = await storage.getResident(Number(req.params.id));
     if (!resident) return res.status(404).json({ error: "Resident not found" });
+    if (resident.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     res.json(resident);
   });
 
@@ -282,7 +284,10 @@ export async function registerRoutes(
     res.status(201).json(resident);
   });
 
-  app.patch("/api/residents/:id", async (req, res) => {
+  app.patch("/api/residents/:id", requireCompanyAuth, async (req, res) => {
+    const existing = await storage.getResident(Number(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Resident not found" });
+    if (existing.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     const updated = await storage.updateResident(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ error: "Resident not found" });
     res.json(updated);
@@ -302,7 +307,10 @@ export async function registerRoutes(
     res.status(201).json(sensor);
   });
 
-  app.patch("/api/sensors/:id", async (req, res) => {
+  app.patch("/api/sensors/:id", requireCompanyAuth, async (req, res) => {
+    const existing = await storage.getSensor(Number(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Sensor not found" });
+    if (existing.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     const updated = await storage.updateSensor(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ error: "Sensor not found" });
     res.json(updated);
@@ -315,7 +323,10 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get("/api/residents/:id/motion-events", async (req, res) => {
+  app.get("/api/residents/:id/motion-events", requireCompanyAuth, async (req, res) => {
+    const resident = await storage.getResident(Number(req.params.id));
+    if (!resident) return res.status(404).json({ error: "Resident not found" });
+    if (resident.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     const limit = req.query.limit ? Number(req.query.limit) : 50;
     const result = await storage.getResidentMotionEvents(Number(req.params.id), limit);
     res.json(result);
@@ -433,7 +444,10 @@ export async function registerRoutes(
     res.status(201).json(config);
   });
 
-  app.patch("/api/scenario-configs/:id", async (req, res) => {
+  app.patch("/api/scenario-configs/:id", requireCompanyAuth, async (req, res) => {
+    const existing = await storage.getScenarioConfig(Number(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Config not found" });
+    if (existing.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     const updated = await storage.updateScenarioConfig(Number(req.params.id), req.body);
     if (!updated) return res.status(404).json({ error: "Config not found" });
     res.json(updated);
@@ -445,13 +459,13 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.post("/api/scenarios/:id/resolve", async (req, res) => {
+  app.post("/api/scenarios/:id/resolve", requireCompanyAuth, async (req, res) => {
+    const scenario = await storage.getActiveScenario(Number(req.params.id));
+    if (!scenario) return res.status(404).json({ error: "Scenario not found" });
+    if (scenario.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     const { resolvedBy } = req.body;
     await storage.resolveActiveScenario(Number(req.params.id), resolvedBy || "staff");
-    const scenario = await storage.getActiveScenario(Number(req.params.id));
-    if (scenario) {
-      await storage.updateResidentStatus(scenario.residentId, "safe");
-    }
+    await storage.updateResidentStatus(scenario.residentId, "safe");
     broadcastToClients({ type: "scenario_resolved", data: { id: Number(req.params.id) } });
     res.json({ resolved: true });
   });
@@ -468,30 +482,45 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.post("/api/alerts/:id/acknowledge", async (req, res) => {
+  app.post("/api/alerts/:id/acknowledge", requireCompanyAuth, async (req, res) => {
+    const alert = await storage.getAlert(Number(req.params.id));
+    if (!alert) return res.status(404).json({ error: "Alert not found" });
+    if (alert.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     await storage.acknowledgeAlert(Number(req.params.id), req.body.acknowledgedBy || "staff");
     res.json({ acknowledged: true });
   });
 
-  app.post("/api/alerts/:id/read", async (req, res) => {
+  app.post("/api/alerts/:id/read", requireCompanyAuth, async (req, res) => {
+    const alert = await storage.getAlert(Number(req.params.id));
+    if (!alert) return res.status(404).json({ error: "Alert not found" });
+    if (alert.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     await storage.markAlertRead(Number(req.params.id));
     res.json({ read: true });
   });
 
   // --- Conversations & Messages ---
-  app.get("/api/residents/:residentId/conversations", async (req, res) => {
+  app.get("/api/residents/:residentId/conversations", requireCompanyAuth, async (req, res) => {
+    const resident = await storage.getResident(Number(req.params.residentId));
+    if (!resident) return res.status(404).json({ error: "Resident not found" });
+    if (resident.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     const result = await storage.getConversations(Number(req.params.residentId));
     res.json(result);
   });
 
-  app.get("/api/conversations/:id", async (req, res) => {
+  app.get("/api/conversations/:id", requireCompanyAuth, async (req, res) => {
     const conv = await storage.getConversation(Number(req.params.id));
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
+    const resident = await storage.getResident(conv.residentId);
+    if (!resident || resident.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     const msgs = await storage.getMessages(conv.id);
     res.json({ ...conv, messages: msgs });
   });
 
-  app.get("/api/conversations/:id/messages", async (req, res) => {
+  app.get("/api/conversations/:id/messages", requireCompanyAuth, async (req, res) => {
+    const conv = await storage.getConversation(Number(req.params.id));
+    if (!conv) return res.status(404).json({ error: "Conversation not found" });
+    const resident = await storage.getResident(conv.residentId);
+    if (!resident || resident.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
     const msgs = await storage.getMessages(Number(req.params.id));
     res.json(msgs);
   });
@@ -663,12 +692,13 @@ export async function registerRoutes(
   });
 
   // --- Trigger scenario manually (for testing) ---
-  app.post("/api/trigger-scenario", async (req, res) => {
+  app.post("/api/trigger-scenario", requireCompanyAuth, async (req, res) => {
     try {
       const { residentId, scenarioType, location } = req.body;
 
       const resident = await storage.getResident(residentId);
       if (!resident) return res.status(404).json({ error: "Resident not found" });
+      if (resident.entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
 
       const configs = await storage.getScenarioConfigsForResident(residentId, resident.entityId);
       const config = configs.find(c => c.scenarioType === scenarioType);
@@ -915,7 +945,7 @@ export async function registerRoutes(
   });
 
   // --- Chat API ---
-  app.post("/api/chat/:entityId/:userId", async (req, res) => {
+  app.post("/api/chat/:entityId/:userId", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const residentId = Number(req.params.userId);
@@ -923,6 +953,7 @@ export async function registerRoutes(
       if (isNaN(entityId) || isNaN(residentId)) {
         return res.status(400).json({ error: "Invalid entityId or userId" });
       }
+      if (entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
 
       const { message } = req.body;
 
@@ -952,11 +983,12 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/chat/:entityId/:userId/history", async (req, res) => {
+  app.get("/api/chat/:entityId/:userId/history", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const residentId = Number(req.params.userId);
 
+      if (entityId !== req.companyUser!.entityId) return res.status(403).json({ error: "Access denied" });
       const result = await chatService.getConversationHistory(entityId, residentId);
       res.json(result);
     } catch (error) {
@@ -1370,11 +1402,11 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/speaker/sessions", async (_req, res) => {
+  app.get("/api/speaker/sessions", requireCompanyAuth, async (_req, res) => {
     res.json(getActiveSessions());
   });
 
-  app.get("/api/speaker/health/:speakerId", async (req, res) => {
+  app.get("/api/speaker/health/:speakerId", requireCompanyAuth, async (req, res) => {
     const health = getSpeakerHealth(req.params.speakerId);
     res.json(health);
   });
