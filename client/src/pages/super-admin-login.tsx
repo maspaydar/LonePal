@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useSuperAdminAuth } from "@/hooks/use-super-admin-auth";
 import { Shield, Lock, KeyRound } from "lucide-react";
 
 export default function SuperAdminLogin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { setSession } = useSuperAdminAuth();
   const [step, setStep] = useState<"login" | "2fa" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,8 +39,7 @@ export default function SuperAdminLogin() {
         setStep("2fa");
         toast({ title: "2FA Required", description: "Enter the code from your authenticator app" });
       } else {
-        localStorage.setItem("superAdminToken", data.token);
-        localStorage.setItem("superAdmin", JSON.stringify(data.admin));
+        setSession(data.token, data.admin);
         setLocation("/super-admin/dashboard");
       }
     } catch {
@@ -65,8 +66,7 @@ export default function SuperAdminLogin() {
         toast({ title: "Verification failed", description: data.error || "Invalid code", variant: "destructive" });
         return;
       }
-      localStorage.setItem("superAdminToken", data.token);
-      localStorage.setItem("superAdmin", JSON.stringify(data.admin));
+      setSession(data.token, data.admin);
       setLocation("/super-admin/dashboard");
     } catch {
       toast({ title: "Error", description: "Verification failed", variant: "destructive" });
@@ -93,8 +93,7 @@ export default function SuperAdminLogin() {
         toast({ title: "Registration failed", description: data.error, variant: "destructive" });
         return;
       }
-      localStorage.setItem("superAdminToken", data.token);
-      localStorage.setItem("superAdmin", JSON.stringify(data.admin));
+      setSession(data.token, data.admin);
       setLocation("/super-admin/dashboard");
     } catch {
       toast({ title: "Error", description: "Registration failed", variant: "destructive" });

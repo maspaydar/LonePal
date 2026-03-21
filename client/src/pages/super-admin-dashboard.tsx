@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useSuperAdminAuth } from "@/hooks/use-super-admin-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,7 +60,7 @@ import {
 } from "@/components/ui/select";
 
 function getToken() {
-  return localStorage.getItem("superAdminToken") || "";
+  return localStorage.getItem("sa_token") || "";
 }
 
 function authHeaders() {
@@ -119,6 +120,7 @@ function FacilityStatusBadge({ status }: { status: string }) {
 export default function SuperAdminDashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { logout, getAdmin } = useSuperAdminAuth();
   const [showAddFacility, setShowAddFacility] = useState(false);
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
@@ -160,8 +162,7 @@ export default function SuperAdminDashboard() {
     queryFn: async () => {
       const res = await fetch("/api/super-admin/dashboard", { headers: authHeaders() });
       if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem("superAdminToken");
-        setLocation("/super-admin");
+        logout();
         throw new Error("Unauthorized");
       }
       return res.json();
@@ -276,9 +277,7 @@ export default function SuperAdminDashboard() {
   }
 
   function handleLogout() {
-    localStorage.removeItem("superAdminToken");
-    localStorage.removeItem("superAdmin");
-    setLocation("/super-admin");
+    logout();
   }
 
   async function openMaintenance(facility: Facility) {
@@ -385,7 +384,7 @@ export default function SuperAdminDashboard() {
     },
   });
 
-  const admin = JSON.parse(localStorage.getItem("superAdmin") || "{}");
+  const admin = getAdmin();
 
   if (isLoading) {
     return (
@@ -785,6 +784,33 @@ function ProvisionCompanyPanel() {
 }
 
 function RegistryPanel({ dashData, healthCheckMutation, showAddFacility, setShowAddFacility, newFacility, setNewFacility, addFacilityMutation, deleteFacilityMutation, updateFacilityMutation, openMaintenance, setSelectedFacility, setShowConfigDialog }: any) {
+  const { toast } = useToast();
+  const [facilityHealthResults, setFacilityHealthResults] = useState<Record<number, { status: string; responseTimeMs?: number; loading?: boolean }>>({});
+
+  async function checkFacilityHealth(facility: Facility) {
+    setFacilityHealthResults(prev => ({ ...prev, [facility.id]: { ...prev[facility.id], loading: true, status: "checking" } }));
+    try {
+      const res = await fetch(`/api/super-admin/facilities/${facility.id}/health-check`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      setFacilityHealthResults(prev => ({ ...prev, [facility.id]: { loading: false, status: data.status, responseTimeMs: data.responseTimeMs } }));
+      toast({
+        title: `Health: ${facility.name}`,
+        description: data.status === "healthy"
+          ? `Healthy — ${data.responseTimeMs}ms`
+          : data.status === "no_url"
+          ? "No installation URL configured"
+          : `Status: ${data.status}`,
+        variant: data.status === "healthy" ? "default" : "destructive",
+      });
+    } catch {
+      setFacilityHealthResults(prev => ({ ...prev, [facility.id]: { loading: false, status: "error" } }));
+      toast({ title: "Health check failed", description: `Could not reach ${facility.name}`, variant: "destructive" });
+    }
+  }
+
   return (
     <>
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -979,6 +1005,23 @@ function RegistryPanel({ dashData, healthCheckMutation, showAddFacility, setShow
                   >
                     <Settings className="w-3 h-3 mr-1" />
                     Config
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => checkFacilityHealth(facility)}
+                    disabled={facilityHealthResults[facility.id]?.loading}
+                    data-testid={`button-health-${facility.id}`}
+                  >
+                    <Activity className={`w-3 h-3 mr-1 ${facilityHealthResults[facility.id]?.loading ? "animate-spin" : ""}`} />
+                    {facilityHealthResults[facility.id]?.loading
+                      ? "Checking..."
+                      : facilityHealthResults[facility.id]?.status
+                        ? facilityHealthResults[facility.id].status === "healthy"
+                          ? `✓ ${facilityHealthResults[facility.id].responseTimeMs}ms`
+                          : facilityHealthResults[facility.id].status
+                        : "Check Health"
+                    }
                   </Button>
                   <Select
                     value={facility.status}
@@ -1654,9 +1697,9 @@ function TwoFADialog({ showSetup2FA, setShowSetup2FA, totpData, verifyCode, setV
                   toast({ title: "2FA Enabled", description: "Two-factor authentication is now active" });
                   setShowSetup2FA(false);
                   setVerifyCode("");
-                  const adminData = JSON.parse(localStorage.getItem("superAdmin") || "{}");
+                  const adminData = JSON.parse(localStorage.getItem("sa_admin") || "{}");
                   adminData.totpEnabled = true;
-                  localStorage.setItem("superAdmin", JSON.stringify(adminData));
+                  localStorage.setItem("sa_admin", JSON.stringify(adminData));
                 } catch {
                   toast({ title: "Error", description: "Verification failed", variant: "destructive" });
                 } finally {

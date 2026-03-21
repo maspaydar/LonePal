@@ -87,9 +87,9 @@ function AppLayout() {
 }
 
 function SuperAdminGuard({ children }: { children: ReactNode }) {
-  const token = localStorage.getItem("superAdminToken");
+  const token = localStorage.getItem("sa_token");
   if (!token) {
-    return <Redirect to="/super-admin" />;
+    return <Redirect to="/super-admin/login" />;
   }
   return <>{children}</>;
 }
@@ -100,11 +100,14 @@ function App() {
       <ThemeProvider>
         <TooltipProvider>
           <Switch>
-            <Route path="/super-admin" component={SuperAdminLogin} />
+            <Route path="/super-admin/login" component={SuperAdminLogin} />
             <Route path="/super-admin/dashboard">
               <SuperAdminGuard>
                 <SuperAdminDashboard />
               </SuperAdminGuard>
+            </Route>
+            <Route path="/super-admin">
+              <Redirect to="/super-admin/login" />
             </Route>
             <Route>
               <AppLayout />

@@ -383,6 +383,49 @@ router.post("/facilities/check-health", superAdminAuthMiddleware, async (_req, r
   }
 });
 
+router.post("/facilities/:id/health-check", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facility = await storage.getFacility(Number(req.params.id));
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    if (!facility.installationUrl) {
+      return res.json({ facilityId: facility.facilityId, name: facility.name, status: "no_url", responseTimeMs: 0 });
+    }
+
+    const startTime = Date.now();
+    try {
+      const response = await fetch(`${facility.installationUrl}/api/health`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      const responseTimeMs = Date.now() - startTime;
+      const data = response.ok ? await response.json() : null;
+      const status = response.ok ? "healthy" : "unhealthy";
+      const activeUsers = data?.activeUsers || 0;
+
+      await storage.createFacilityHealthLog({ facilityId: facility.id, status, responseTimeMs, activeUsers });
+      await storage.updateFacility(facility.id, {
+        lastHealthCheck: new Date(),
+        lastHealthStatus: status,
+        activeResidents: activeUsers,
+      });
+
+      res.json({ facilityId: facility.facilityId, name: facility.name, status, responseTimeMs, activeUsers });
+    } catch (err: any) {
+      const responseTimeMs = Date.now() - startTime;
+      await storage.createFacilityHealthLog({
+        facilityId: facility.id,
+        status: "unreachable",
+        responseTimeMs,
+        errorMessage: err.message,
+      });
+      await storage.updateFacility(facility.id, { lastHealthCheck: new Date(), lastHealthStatus: "unreachable" });
+      res.json({ facilityId: facility.facilityId, name: facility.name, status: "unreachable", responseTimeMs, error: err.message });
+    }
+  } catch (error) {
+    res.status(500).json({ error: "Health check failed" });
+  }
+});
+
 function signMaintenancePayload(payload: Record<string, any>): { signature: string; timestamp: number } {
   const timestamp = Date.now();
   const body = JSON.stringify({ ...payload, timestamp });
