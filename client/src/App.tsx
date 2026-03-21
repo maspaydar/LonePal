@@ -94,20 +94,38 @@ function SuperAdminGuard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function SuperAdminRouter() {
+  return (
+    <Switch>
+      <Route path="/super-admin/login" component={SuperAdminLogin} />
+      <Route path="/super-admin/dashboard">
+        <SuperAdminGuard>
+          <SuperAdminDashboard />
+        </SuperAdminGuard>
+      </Route>
+      <Route path="/super-admin/:rest*">
+        <SuperAdminGuard>
+          <Redirect to="/super-admin/dashboard" />
+        </SuperAdminGuard>
+      </Route>
+      <Route path="/super-admin">
+        <Redirect to="/super-admin/login" />
+      </Route>
+    </Switch>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider>
           <Switch>
-            <Route path="/super-admin/login" component={SuperAdminLogin} />
-            <Route path="/super-admin/dashboard">
-              <SuperAdminGuard>
-                <SuperAdminDashboard />
-              </SuperAdminGuard>
+            <Route path="/super-admin/:rest*">
+              <SuperAdminRouter />
             </Route>
             <Route path="/super-admin">
-              <Redirect to="/super-admin/login" />
+              <SuperAdminRouter />
             </Route>
             <Route>
               <AppLayout />

@@ -170,6 +170,19 @@ export default function SuperAdminDashboard() {
     refetchInterval: 30000,
   });
 
+  const { data: facilitiesData } = useQuery<Facility[]>({
+    queryKey: ["/api/super-admin/facilities"],
+    queryFn: async () => {
+      const res = await fetch("/api/super-admin/facilities", { headers: authHeaders() });
+      if (res.status === 401 || res.status === 403) {
+        logout();
+        throw new Error("Unauthorized");
+      }
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
   const healthCheckMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/super-admin/facilities/check-health", {
@@ -180,6 +193,7 @@ export default function SuperAdminDashboard() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/super-admin/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/facilities"] });
       toast({ title: "Health check complete", description: `Checked ${data.checked} facilities` });
     },
   });
@@ -199,6 +213,7 @@ export default function SuperAdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/super-admin/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/facilities"] });
       setShowAddFacility(false);
       setNewFacility({ facilityId: "", name: "", address: "", contactEmail: "", contactPhone: "", installationUrl: "", status: "onboarding", geminiApiKey: "" });
       toast({ title: "Facility added" });
@@ -217,6 +232,7 @@ export default function SuperAdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/super-admin/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/facilities"] });
       toast({ title: "Facility removed" });
     },
   });
@@ -254,6 +270,7 @@ export default function SuperAdminDashboard() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/super-admin/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/facilities"] });
       toast({ title: "Facility updated" });
     },
   });
@@ -492,6 +509,7 @@ export default function SuperAdminDashboard() {
 
         {activePanel === "registry" && (<RegistryPanel
           dashData={dashData}
+          facilities={facilitiesData}
           healthCheckMutation={healthCheckMutation}
           showAddFacility={showAddFacility}
           setShowAddFacility={setShowAddFacility}
@@ -783,7 +801,7 @@ function ProvisionCompanyPanel() {
   );
 }
 
-function RegistryPanel({ dashData, healthCheckMutation, showAddFacility, setShowAddFacility, newFacility, setNewFacility, addFacilityMutation, deleteFacilityMutation, updateFacilityMutation, openMaintenance, setSelectedFacility, setShowConfigDialog }: any) {
+function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacility, setShowAddFacility, newFacility, setNewFacility, addFacilityMutation, deleteFacilityMutation, updateFacilityMutation, openMaintenance, setSelectedFacility, setShowConfigDialog }: any) {
   const { toast } = useToast();
   const [facilityHealthResults, setFacilityHealthResults] = useState<Record<number, { status: string; responseTimeMs?: number; loading?: boolean }>>({});
 
@@ -942,7 +960,7 @@ function RegistryPanel({ dashData, healthCheckMutation, showAddFacility, setShow
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {dashData?.facilities?.map((facility: Facility) => (
+          {(facilities ?? []).map((facility: Facility) => (
             <Card key={facility.id} className="relative" data-testid={`card-facility-${facility.id}`}>
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
@@ -1054,7 +1072,7 @@ function RegistryPanel({ dashData, healthCheckMutation, showAddFacility, setShow
             </Card>
           ))}
 
-          {(!dashData?.facilities || dashData.facilities.length === 0) && (
+          {(!facilities || facilities.length === 0) && (
             <div className="col-span-full text-center py-12 text-muted-foreground">
               <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <p className="text-sm">No facilities registered yet</p>
