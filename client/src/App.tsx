@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,7 +8,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useWebSocket } from "@/lib/websocket";
-import { useCallback } from "react";
+import { useCallback, type ReactNode } from "react";
 
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
@@ -86,6 +86,14 @@ function AppLayout() {
   );
 }
 
+function SuperAdminGuard({ children }: { children: ReactNode }) {
+  const token = localStorage.getItem("superAdminToken");
+  if (!token) {
+    return <Redirect to="/super-admin" />;
+  }
+  return <>{children}</>;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -93,7 +101,11 @@ function App() {
         <TooltipProvider>
           <Switch>
             <Route path="/super-admin" component={SuperAdminLogin} />
-            <Route path="/super-admin/dashboard" component={SuperAdminDashboard} />
+            <Route path="/super-admin/dashboard">
+              <SuperAdminGuard>
+                <SuperAdminDashboard />
+              </SuperAdminGuard>
+            </Route>
             <Route>
               <AppLayout />
             </Route>

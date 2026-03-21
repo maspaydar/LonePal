@@ -127,7 +127,7 @@ export default function SuperAdminDashboard() {
   const [verifyCode, setVerifyCode] = useState("");
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
 
-  const [activePanel, setActivePanel] = useState<"registry" | "healthmap" | "logstream" | "broadcast" | "recovery">("registry");
+  const [activePanel, setActivePanel] = useState<"registry" | "healthmap" | "logstream" | "broadcast" | "recovery" | "provision">("registry");
 
   const [showMaintenance, setShowMaintenance] = useState(false);
   const [maintenanceFacility, setMaintenanceFacility] = useState<Facility | null>(null);
@@ -472,6 +472,7 @@ export default function SuperAdminDashboard() {
         <div className="flex items-center gap-2 flex-wrap">
           {([
             { id: "registry", label: "Facility Registry", icon: Building2 },
+            { id: "provision", label: "Provision Company", icon: Plus },
             { id: "healthmap", label: "Health Map", icon: Map },
             { id: "logstream", label: "Log Stream", icon: Radio },
             { id: "broadcast", label: "Broadcast", icon: Megaphone },
@@ -505,6 +506,7 @@ export default function SuperAdminDashboard() {
           setShowConfigDialog={setShowConfigDialog}
         />)}
 
+        {activePanel === "provision" && (<ProvisionCompanyPanel />)}
         {activePanel === "healthmap" && (<HealthMapPanel />)}
         {activePanel === "logstream" && (<LogStreamPanel />)}
         {activePanel === "broadcast" && (<BroadcastPanel />)}
@@ -554,6 +556,230 @@ export default function SuperAdminDashboard() {
         clearCacheMutation={clearCacheMutation}
         toast={toast}
       />
+    </div>
+  );
+}
+
+function ProvisionCompanyPanel() {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    name: "",
+    type: "facility",
+    address: "",
+    contactEmail: "",
+    contactPhone: "",
+    geminiApiKey: "",
+  });
+  const [isProvisioning, setIsProvisioning] = useState(false);
+  const [result, setResult] = useState<{
+    id: number;
+    name: string;
+    defaultAdminCredentials: { username: string; password: string; note: string };
+  } | null>(null);
+
+  async function handleProvision(e: React.FormEvent) {
+    e.preventDefault();
+    setIsProvisioning(true);
+    setResult(null);
+    try {
+      const body: Record<string, string | boolean> = {
+        name: form.name,
+        type: form.type,
+        isActive: true,
+      };
+      if (form.address) body.address = form.address;
+      if (form.contactEmail) body.contactEmail = form.contactEmail;
+      if (form.contactPhone) body.contactPhone = form.contactPhone;
+      if (form.geminiApiKey) body.geminiApiKey = form.geminiApiKey;
+
+      const res = await fetch("/api/entities", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Provisioning failed", description: data.error || "Unknown error", variant: "destructive" });
+        return;
+      }
+      setResult(data);
+      setForm({ name: "", type: "facility", address: "", contactEmail: "", contactPhone: "", geminiApiKey: "" });
+      toast({ title: "Company provisioned", description: `${data.name} is ready. Save the credentials below.` });
+    } catch {
+      toast({ title: "Error", description: "Failed to provision company", variant: "destructive" });
+    } finally {
+      setIsProvisioning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h2 className="text-lg font-semibold" data-testid="text-provision-title">Provision New Company</h2>
+          <p className="text-sm text-muted-foreground">Create a new tenant entity with default admin credentials</p>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Building2 className="w-4 h-4" />
+              Company Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleProvision} className="space-y-3">
+              <div className="space-y-1">
+                <Label>Company Name <span className="text-destructive">*</span></Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Sunrise Gardens Senior Living"
+                  required
+                  data-testid="input-provision-name"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Facility Type</Label>
+                <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                  <SelectTrigger data-testid="select-provision-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="facility">Facility</SelectItem>
+                    <SelectItem value="hospital">Hospital</SelectItem>
+                    <SelectItem value="clinic">Clinic</SelectItem>
+                    <SelectItem value="home_care">Home Care</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Address</Label>
+                <Input
+                  value={form.address}
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  placeholder="123 Main St, City, ST 12345"
+                  data-testid="input-provision-address"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Contact Email</Label>
+                  <Input
+                    type="email"
+                    value={form.contactEmail}
+                    onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
+                    placeholder="admin@facility.com"
+                    data-testid="input-provision-email"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Contact Phone</Label>
+                  <Input
+                    value={form.contactPhone}
+                    onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
+                    placeholder="+1 555-000-0000"
+                    data-testid="input-provision-phone"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Gemini API Key</Label>
+                <Input
+                  type="password"
+                  value={form.geminiApiKey}
+                  onChange={(e) => setForm({ ...form, geminiApiKey: e.target.value })}
+                  placeholder="AIza..."
+                  data-testid="input-provision-apikey"
+                />
+              </div>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={!form.name || isProvisioning}
+                data-testid="button-provision-company"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                {isProvisioning ? "Provisioning..." : "Provision Company Tenant"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-4">
+          {result ? (
+            <Card className="border-green-500/50 bg-green-500/5">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
+                  <Shield className="w-4 h-4" />
+                  Company Provisioned Successfully
+                </CardTitle>
+                <CardDescription>Save these credentials immediately — the password cannot be retrieved again</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Company</p>
+                  <p className="text-sm font-semibold" data-testid="text-provision-result-name">{result.name}</p>
+                  <p className="text-xs text-muted-foreground">Entity ID: {result.id}</p>
+                </div>
+                <div className="bg-muted rounded-md p-4 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Admin Credentials</p>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">Username</span>
+                      <code className="text-sm font-mono font-bold" data-testid="text-provision-username">
+                        {result.defaultAdminCredentials.username}
+                      </code>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">Password</span>
+                      <code className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400" data-testid="text-provision-password">
+                        {result.defaultAdminCredentials.password}
+                      </code>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 rounded-md p-3">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p>{result.defaultAdminCredentials.note}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                <Building2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Provisioning credentials will appear here</p>
+                <p className="text-xs mt-1">Each company gets a unique admin account with a one-time password</p>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">What happens when you provision?</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {[
+                { icon: Building2, text: "A new tenant entity is created in the database" },
+                { icon: Users, text: "A default admin user is generated with a secure one-time password" },
+                { icon: Shield, text: "The admin can log into the Company Admin portal at /company/login" },
+                { icon: Settings, text: "The company can then manage residents, sensors, and units" },
+              ].map((item, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <item.icon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{item.text}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -690,7 +916,7 @@ function RegistryPanel({ dashData, healthCheckMutation, showAddFacility, setShow
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {dashData?.facilities?.map((facility) => (
+          {dashData?.facilities?.map((facility: Facility) => (
             <Card key={facility.id} className="relative" data-testid={`card-facility-${facility.id}`}>
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">

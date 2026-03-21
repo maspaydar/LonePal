@@ -149,7 +149,7 @@ export default function SuperAdminLogin() {
                 {isLoading ? "Signing in..." : "Sign In"}
               </Button>
               <div className="text-center">
-                <Button variant="link" type="button" onClick={() => setStep("register")} data-testid="link-register">
+                <Button variant="ghost" type="button" onClick={() => setStep("register")} data-testid="link-register">
                   Create new account
                 </Button>
               </div>
@@ -179,7 +179,7 @@ export default function SuperAdminLogin() {
                 {isLoading ? "Verifying..." : "Verify"}
               </Button>
               <div className="text-center">
-                <Button variant="link" type="button" onClick={() => { setStep("login"); setTotpCode(""); }} data-testid="link-back-login">
+                <Button variant="ghost" type="button" onClick={() => { setStep("login"); setTotpCode(""); }} data-testid="link-back-login">
                   Back to login
                 </Button>
               </div>
@@ -225,7 +225,7 @@ export default function SuperAdminLogin() {
                 {isLoading ? "Creating account..." : "Create Account"}
               </Button>
               <div className="text-center">
-                <Button variant="link" type="button" onClick={() => setStep("login")} data-testid="link-back-to-login">
+                <Button variant="ghost" type="button" onClick={() => setStep("login")} data-testid="link-back-to-login">
                   Already have an account? Sign in
                 </Button>
               </div>
