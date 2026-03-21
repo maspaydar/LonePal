@@ -3,6 +3,17 @@ import { useLocation } from "wouter";
 const SA_TOKEN_KEY = "sa_token";
 const SA_ADMIN_KEY = "sa_admin";
 
+export function getSuperAdminToken(): string {
+  return localStorage.getItem(SA_TOKEN_KEY) || "";
+}
+
+export function getSuperAdminAuthHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${getSuperAdminToken()}`,
+  };
+}
+
 export function useSuperAdminAuth() {
   const [, setLocation] = useLocation();
 

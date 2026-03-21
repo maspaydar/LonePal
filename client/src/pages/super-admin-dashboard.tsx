@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useSuperAdminAuth } from "@/hooks/use-super-admin-auth";
+import { useSuperAdminAuth, getSuperAdminAuthHeaders } from "@/hooks/use-super-admin-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,16 +59,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-function getToken() {
-  return localStorage.getItem("sa_token") || "";
-}
-
-function authHeaders() {
-  return {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${getToken()}`,
-  };
-}
+const authHeaders = getSuperAdminAuthHeaders;
 
 interface Facility {
   id: number;
@@ -579,6 +570,7 @@ export default function SuperAdminDashboard() {
 
 function ProvisionCompanyPanel() {
   const { toast } = useToast();
+  const { logout } = useSuperAdminAuth();
   const [form, setForm] = useState({
     name: "",
     type: "facility",
@@ -611,12 +603,13 @@ function ProvisionCompanyPanel() {
 
       const res = await fetch("/api/entities", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getToken()}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify(body),
       });
+      if (res.status === 401 || res.status === 403) {
+        logout();
+        return;
+      }
       const data = await res.json();
       if (!res.ok) {
         toast({ title: "Provisioning failed", description: data.error || "Unknown error", variant: "destructive" });
@@ -1022,7 +1015,7 @@ function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacil
                     data-testid={`button-config-${facility.id}`}
                   >
                     <Settings className="w-3 h-3 mr-1" />
-                    Config
+                    Push Config
                   </Button>
                   <Button
                     variant="outline"
