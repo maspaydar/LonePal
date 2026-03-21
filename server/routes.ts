@@ -221,7 +221,12 @@ export async function registerRoutes(
     provisionEntityFolder(entity.id);
     dailyLogger.info("entities", `Created entity ${entity.id}: ${entity.name}`, { entityId: entity.id });
 
-    const defaultUsername = entity.name.toLowerCase().replace(/[^a-z0-9]/g, "_").substring(0, 20) + "_admin";
+    const baseUsername = entity.name.toLowerCase().replace(/[^a-z0-9]/g, "_").substring(0, 20) + "_admin";
+    let defaultUsername = baseUsername;
+    let suffix = 2;
+    while (await storage.getUserByUsername(defaultUsername)) {
+      defaultUsername = `${baseUsername}${suffix++}`;
+    }
     const defaultPassword = crypto.randomBytes(8).toString("hex");
     const hashedPassword = await bcrypt.hash(defaultPassword, 12);
     await storage.createUser({
