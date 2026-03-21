@@ -35,7 +35,9 @@ import { eq, and, desc, isNull, sql } from "drizzle-orm";
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUsersByEntity(entityId: number): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined>;
 
   getEntities(): Promise<Entity[]>;
   getEntity(id: number): Promise<Entity | undefined>;
@@ -172,9 +174,18 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getUsersByEntity(entityId: number): Promise<User[]> {
+    return db.select().from(users).where(eq(users.entityId, entityId)).orderBy(users.fullName);
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined> {
+    const [updated] = await db.update(users).set(data).where(eq(users.id, id)).returning();
+    return updated;
   }
 
   async getEntities(): Promise<Entity[]> {

@@ -16,9 +16,11 @@ import { emergencyService } from "./services/emergency-service";
 import { GoogleGenAI } from "@google/genai";
 import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "./middleware/mobile-auth";
-import superAdminRouter from "./routes/super-admin";
+import { requireCompanyAuth, requireCompanyAdmin } from "./middleware/company-auth";
+import superAdminRouter from "./routes/super-admin/index";
 import maintenanceRouter from "./routes/maintenance";
-import esp32Router from "./routes/esp32";
+import esp32Router from "./routes/iot/index";
+import companyRouter from "./routes/company/index";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
 import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices } from "./services/esp32-speaker";
 import { initLogStreamer, streamInfo } from "./services/log-streamer";
@@ -84,6 +86,7 @@ export async function registerRoutes(
   app.use("/api/super-admin", superAdminRouter);
   app.use("/api/maintenance", maintenanceRouter);
   app.use("/api/esp32", esp32Router);
+  app.use("/api/company", companyRouter);
 
   app.get("/api/health", async (_req, res) => {
     try {
@@ -200,6 +203,13 @@ export async function registerRoutes(
     }
   });
 
+  app.use((req, res, next) => {
+    if (/^\/api\/entities\/\d+\//.test(req.path)) {
+      return requireCompanyAuth(req, res, next);
+    }
+    next();
+  });
+
   // --- Entity routes ---
   app.get("/api/entities", async (_req, res) => {
     const result = await storage.getEntities();
@@ -218,7 +228,27 @@ export async function registerRoutes(
     const entity = await storage.createEntity(parsed.data);
     provisionEntityFolder(entity.id);
     dailyLogger.info("entities", `Created entity ${entity.id}: ${entity.name}`, { entityId: entity.id });
-    res.status(201).json(entity);
+
+    const defaultUsername = entity.name.toLowerCase().replace(/[^a-z0-9]/g, "_").substring(0, 20) + "_admin";
+    const defaultPassword = crypto.randomBytes(8).toString("hex");
+    const hashedPassword = await bcrypt.hash(defaultPassword, 12);
+    await storage.createUser({
+      username: defaultUsername,
+      password: hashedPassword,
+      fullName: `${entity.name} Admin`,
+      role: "admin",
+      entityId: entity.id,
+    });
+    dailyLogger.info("entities", `Created default admin user '${defaultUsername}' for entity ${entity.id}`, { entityId: entity.id });
+
+    res.status(201).json({
+      ...entity,
+      defaultAdminCredentials: {
+        username: defaultUsername,
+        password: defaultPassword,
+        note: "Save these credentials — the password will not be shown again",
+      },
+    });
   });
 
   app.patch("/api/entities/:id", async (req, res) => {

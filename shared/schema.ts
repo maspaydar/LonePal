@@ -365,6 +365,18 @@ export const mobileLoginSchema = z.object({
   entityId: z.coerce.number().int().positive(),
 });
 
+export const companyLoginSchema = z.object({
+  username: z.string().min(1, "Username is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export const createCompanyUserSchema = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  fullName: z.string().min(1, "Full name is required"),
+  role: z.enum(["admin", "manager", "staff"]).default("staff"),
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Entity = typeof entities.$inferSelect;
