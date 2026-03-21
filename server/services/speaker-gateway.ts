@@ -453,10 +453,12 @@ export async function pushCheckInWithListenMode(
   };
 }
 
-export function getActiveSessions(): { speakerId: string; unitId: number; residentId: number }[] {
-  const sessions: { speakerId: string; unitId: number; residentId: number }[] = [];
+export function getActiveSessions(entityId?: number): { speakerId: string; unitId: number; residentId: number; entityId: number }[] {
+  const sessions: { speakerId: string; unitId: number; residentId: number; entityId: number }[] = [];
   pendingListenSessions.forEach((session, speakerId) => {
-    sessions.push({ speakerId, unitId: session.unitId, residentId: session.residentId });
+    if (entityId === undefined || session.entityId === entityId) {
+      sessions.push({ speakerId, unitId: session.unitId, residentId: session.residentId, entityId: session.entityId });
+    }
   });
   return sessions;
 }
