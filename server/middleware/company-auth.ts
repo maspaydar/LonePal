@@ -1,7 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 
+const COMPANY_TOKEN_TYPE = "company" as const;
+const VALID_ROLES = new Set(["admin", "manager", "staff"]);
+
 export interface CompanyUserJwtPayload {
+  tokenType: "company";
   userId: string;
   entityId: number;
   role: "admin" | "manager" | "staff";
@@ -21,16 +25,37 @@ function getSecret(): string {
   return secret;
 }
 
-export function signCompanyToken(payload: CompanyUserJwtPayload, expiresIn = "8h"): string {
-  return jwt.sign(payload, getSecret(), { expiresIn });
+export function signCompanyToken(
+  payload: Omit<CompanyUserJwtPayload, "tokenType">,
+  expiresIn = "8h"
+): string {
+  return jwt.sign({ ...payload, tokenType: COMPANY_TOKEN_TYPE }, getSecret(), { expiresIn });
+}
+
+function isCompanyPayload(decoded: unknown): decoded is CompanyUserJwtPayload {
+  if (!decoded || typeof decoded !== "object") return false;
+  const p = decoded as Record<string, unknown>;
+  return (
+    p.tokenType === COMPANY_TOKEN_TYPE &&
+    typeof p.userId === "string" &&
+    typeof p.entityId === "number" &&
+    typeof p.role === "string" &&
+    VALID_ROLES.has(p.role as string)
+  );
 }
 
 export function verifyCompanyToken(token: string): CompanyUserJwtPayload | null {
   try {
-    return jwt.verify(token, getSecret()) as CompanyUserJwtPayload;
+    const decoded = jwt.verify(token, getSecret());
+    return isCompanyPayload(decoded) ? decoded : null;
   } catch {
     return null;
   }
+}
+
+function extractEntityIdFromPath(path: string): number | null {
+  const match = path.match(/\/api\/entities\/(\d+)\//);
+  return match ? Number(match[1]) : null;
 }
 
 export function requireCompanyAuth(req: Request, res: Response, next: NextFunction) {
@@ -58,11 +83,6 @@ export function requireCompanyAuth(req: Request, res: Response, next: NextFuncti
 
   req.companyUser = payload;
   next();
-}
-
-function extractEntityIdFromPath(path: string): number | null {
-  const match = path.match(/\/api\/entities\/(\d+)\//);
-  return match ? Number(match[1]) : null;
 }
 
 export function requireCompanyAdmin(req: Request, res: Response, next: NextFunction) {
