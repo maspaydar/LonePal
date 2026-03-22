@@ -92,7 +92,8 @@ export function useCompanyAuth() {
   }
 
   function isAuthenticated(): boolean {
-    return Boolean(localStorage.getItem(CO_TOKEN_KEY));
+    if (!localStorage.getItem(CO_TOKEN_KEY)) return false;
+    return getCompanyUser() !== null && getCompanyEntity() !== null;
   }
 
   return { getToken, getUser, getEntity, getEntityId, authHeaders, setSession, logout, isAuthenticated };
