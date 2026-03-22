@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,13 @@ import { Shield, Lock, KeyRound } from "lucide-react";
 export default function SuperAdminLogin() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { setSession } = useSuperAdminAuth();
+  const { setSession, isAuthenticated } = useSuperAdminAuth();
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      setLocation("/super-admin/dashboard");
+    }
+  }, []);
   const [step, setStep] = useState<"login" | "2fa" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
