@@ -9,15 +9,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ArrowLeft, Send } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 export default function ConversationDetail() {
   const [, params] = useRoute("/conversations/:id");
   const conversationId = Number(params?.id);
   const [inputValue, setInputValue] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
 
   const { data: conversation, isLoading } = useQuery<any>({
-    queryKey: ["/api/conversations", conversationId],
+    queryKey: ["/api/entities", eid, "conversations", conversationId],
+    queryFn: () => apiRequest("GET", `/api/conversations/${conversationId}`).then(r => r.json()),
+    enabled: !!eid,
     refetchInterval: 5000,
   });
 
@@ -29,7 +34,7 @@ export default function ConversationDetail() {
         message,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/conversations", conversationId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/entities", eid, "conversations", conversationId] });
       setInputValue("");
     },
   });

@@ -78,6 +78,7 @@ export default function Dashboard() {
 
   const { data: dashData, isLoading } = useQuery<any>({
     queryKey: [`/api/entities/${eid}/dashboard`],
+    enabled: !!eid,
   });
 
   const { data: insights, isLoading: insightsLoading } = useQuery<any[]>({
