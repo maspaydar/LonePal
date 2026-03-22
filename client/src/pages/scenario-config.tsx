@@ -36,6 +36,7 @@ export default function ScenarioConfig() {
 
   const { data: configs, isLoading } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/scenario-configs`],
+    enabled: !!eid,
   });
 
   const form = useForm({

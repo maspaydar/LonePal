@@ -119,14 +119,17 @@ export default function Units() {
 
   const { data: units, isLoading } = useQuery<UnitData[]>({
     queryKey: [`/api/entities/${eid}/units`],
+    enabled: !!eid,
   });
 
   const { data: allResidents } = useQuery<UnitResident[]>({
     queryKey: [`/api/entities/${eid}/residents`],
+    enabled: !!eid,
   });
 
   const { data: allSensors } = useQuery<UnitSensor[]>({
     queryKey: [`/api/entities/${eid}/sensors`],
+    enabled: !!eid,
   });
 
   const { data: speakerEvents } = useQuery<SpeakerEvent[]>({

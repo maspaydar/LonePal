@@ -22,6 +22,7 @@ export default function Sensors() {
 
   const { data: sensorsList, isLoading } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/sensors`],
+    enabled: !!eid,
   });
 
   const form = useForm({

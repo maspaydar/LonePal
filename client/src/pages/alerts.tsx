@@ -33,6 +33,7 @@ export default function Alerts() {
 
   const { data: alertsList, isLoading } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/alerts`],
+    enabled: !!eid,
   });
 
   const ackMutation = useMutation({

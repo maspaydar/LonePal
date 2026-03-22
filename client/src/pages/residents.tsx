@@ -21,6 +21,7 @@ export default function Residents() {
   const eid = getEntityId();
   const { data: residents, isLoading } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/residents`],
+    enabled: !!eid,
   });
 
   if (isLoading) {

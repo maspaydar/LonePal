@@ -9,6 +9,7 @@ export default function ActivityLog() {
   const eid = getEntityId();
   const { data: events, isLoading } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/motion-events`],
+    enabled: !!eid,
   });
 
   if (isLoading) {

@@ -36,10 +36,12 @@ export default function Scenarios() {
 
   const { data: scenarios, isLoading } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/active-scenarios`],
+    enabled: !!eid,
   });
 
   const { data: residents } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/residents`],
+    enabled: !!eid,
   });
 
   const resolveMutation = useMutation({
