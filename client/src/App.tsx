@@ -9,6 +9,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useWebSocket } from "@/lib/websocket";
 import { useCallback, type ReactNode } from "react";
+import { useCompanyAuth, getCompanyEntityId } from "@/hooks/use-company-auth";
 
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
@@ -24,6 +25,16 @@ import ConversationDetail from "@/pages/conversation-detail";
 import Units from "@/pages/units";
 import SuperAdminLogin from "@/pages/super-admin-login";
 import SuperAdminDashboard from "@/pages/super-admin-dashboard";
+import LoginPage from "@/pages/login";
+import UserManagement from "@/pages/user-management";
+
+function CompanyAuthGuard({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useCompanyAuth();
+  if (!isAuthenticated()) {
+    return <Redirect to="/login" />;
+  }
+  return <>{children}</>;
+}
 
 function AdminRouter() {
   return (
@@ -39,22 +50,26 @@ function AdminRouter() {
       <Route path="/scenario-config" component={ScenarioConfig} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/conversations/:id" component={ConversationDetail} />
+      <Route path="/user-management" component={UserManagement} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
 function AppLayout() {
+  const eid = getCompanyEntityId();
+
   const { data: dashData } = useQuery<any>({
-    queryKey: ["/api/entities/1/dashboard"],
+    queryKey: [`/api/entities/${eid}/dashboard`],
     refetchInterval: 15000,
   });
 
   const handleWsMessage = useCallback((msg: any) => {
     if (msg.type === "scenario_triggered" || msg.type === "alert" || msg.type === "scenario_resolved" || msg.type === "motion_event") {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/active-scenarios"] });
+      const entityId = getCompanyEntityId();
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/dashboard`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/alerts`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/active-scenarios`] });
     }
   }, []);
 
@@ -127,8 +142,11 @@ function App() {
             <Route path="/super-admin">
               <SuperAdminRouter />
             </Route>
+            <Route path="/login" component={LoginPage} />
             <Route>
-              <AppLayout />
+              <CompanyAuthGuard>
+                <AppLayout />
+              </CompanyAuthGuard>
             </Route>
           </Switch>
           <Toaster />

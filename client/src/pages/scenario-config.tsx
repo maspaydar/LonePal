@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { Zap, Plus, Clock, ArrowUp, Settings } from "lucide-react";
 import { useState } from "react";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 function getTypeLabel(type: string) {
   switch (type) {
@@ -28,11 +29,13 @@ function getTypeLabel(type: string) {
 }
 
 export default function ScenarioConfig() {
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
 
   const { data: configs, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/scenario-configs"],
+    queryKey: [`/api/entities/${eid}/scenario-configs`],
   });
 
   const form = useForm({
@@ -47,9 +50,9 @@ export default function ScenarioConfig() {
   });
 
   const addMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("POST", "/api/entities/1/scenario-configs", data),
+    mutationFn: (data: any) => apiRequest("POST", `/api/entities/${eid}/scenario-configs`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/scenario-configs"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/scenario-configs`] });
       toast({ title: "Scenario rule created" });
       setOpen(false);
       form.reset();
@@ -60,7 +63,7 @@ export default function ScenarioConfig() {
     mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
       apiRequest("PATCH", `/api/scenario-configs/${id}`, { isActive }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/scenario-configs"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/scenario-configs`] });
     },
   });
 

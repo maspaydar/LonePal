@@ -12,13 +12,16 @@ import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form";
 import { Radio, Plus, MapPin } from "lucide-react";
 import { useState } from "react";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 export default function Sensors() {
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
 
   const { data: sensorsList, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/sensors"],
+    queryKey: [`/api/entities/${eid}/sensors`],
   });
 
   const form = useForm({
@@ -30,9 +33,9 @@ export default function Sensors() {
   });
 
   const addMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("POST", "/api/entities/1/sensors", data),
+    mutationFn: (data: any) => apiRequest("POST", `/api/entities/${eid}/sensors`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/sensors"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/sensors`] });
       toast({ title: "Sensor added" });
       setOpen(false);
       form.reset();

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Shield, Clock, MapPin, CheckCircle } from "lucide-react";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 function getScenarioLabel(type: string) {
   switch (type) {
@@ -29,22 +30,24 @@ function getScenarioSeverity(type: string): "default" | "secondary" | "destructi
 }
 
 export default function Scenarios() {
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
   const { toast } = useToast();
 
   const { data: scenarios, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/active-scenarios"],
+    queryKey: [`/api/entities/${eid}/active-scenarios`],
   });
 
   const { data: residents } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/residents"],
+    queryKey: [`/api/entities/${eid}/residents`],
   });
 
   const resolveMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/scenarios/${id}/resolve`, { resolvedBy: "staff" }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/active-scenarios"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/alerts"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/active-scenarios`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/alerts`] });
       toast({ title: "Scenario resolved" });
     },
   });

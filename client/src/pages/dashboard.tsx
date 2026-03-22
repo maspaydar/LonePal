@@ -29,6 +29,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -70,20 +71,22 @@ function getSeverityVariant(severity: string): "default" | "secondary" | "destru
 }
 
 export default function Dashboard() {
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
   const { toast } = useToast();
 
   const { data: dashData, isLoading } = useQuery<any>({
-    queryKey: ["/api/entities/1/dashboard"],
+    queryKey: [`/api/entities/${eid}/dashboard`],
   });
 
   const { data: insights, isLoading: insightsLoading } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/ai-insights"],
+    queryKey: [`/api/entities/${eid}/ai-insights`],
     enabled: !!dashData && dashData.totalResidents > 0,
     refetchInterval: 60000,
   });
 
   const { data: broadcasts } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/broadcasts"],
+    queryKey: [`/api/entities/${eid}/broadcasts`],
     enabled: !!dashData && dashData.totalResidents > 0,
   });
 
@@ -91,8 +94,8 @@ export default function Dashboard() {
     mutationFn: () => apiRequest("POST", "/api/seed"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/entities"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/ai-insights"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/ai-insights`] });
       toast({ title: "Demo data loaded successfully" });
     },
   });
@@ -402,12 +405,12 @@ function BroadcastForm() {
   });
 
   const broadcastMutation = useMutation({
-    mutationFn: (values: BroadcastFormValues) => apiRequest("POST", "/api/entities/1/broadcasts", {
+    mutationFn: (values: BroadcastFormValues) => apiRequest("POST", `/api/entities/${eid}/broadcasts`, {
       senderName: values.senderName.trim() || "Facility Admin",
       message: values.message.trim(),
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/broadcasts"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/broadcasts`] });
       toast({ title: "Announcement sent to all AI companions" });
       form.reset();
     },
@@ -497,10 +500,10 @@ function TriggerButton({ residentId, scenarioType, label, location }: {
     }),
     onSuccess: async (res) => {
       const data = await res.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/active-scenarios"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/ai-insights"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/alerts`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/active-scenarios`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/ai-insights`] });
       toast({
         title: "Scenario Triggered",
         description: data.aiMessage?.slice(0, 100) + "...",

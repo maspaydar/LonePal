@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Bell, CheckCircle, AlertTriangle, Info, AlertOctagon } from "lucide-react";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 function getSeverityIcon(severity: string) {
   switch (severity) {
@@ -26,17 +27,19 @@ function getSeverityVariant(severity: string): "default" | "secondary" | "destru
 }
 
 export default function Alerts() {
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
   const { toast } = useToast();
 
   const { data: alertsList, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/alerts"],
+    queryKey: [`/api/entities/${eid}/alerts`],
   });
 
   const ackMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/alerts/${id}/acknowledge`, { acknowledgedBy: "staff" }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/alerts`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
       toast({ title: "Alert acknowledged" });
     },
   });

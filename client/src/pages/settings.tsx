@@ -5,9 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Settings as SettingsIcon, Database, Wifi, Shield } from "lucide-react";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
 
   const { data: entities } = useQuery<any[]>({
     queryKey: ["/api/entities"],
@@ -17,7 +20,7 @@ export default function SettingsPage() {
     mutationFn: () => apiRequest("POST", "/api/seed"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/entities"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
       toast({ title: "Demo data loaded" });
     },
   });

@@ -9,6 +9,8 @@ import {
   Radio,
   Zap,
   Building2,
+  UserCog,
+  LogOut,
 } from "lucide-react";
 import {
   Sidebar,
@@ -23,6 +25,8 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -46,6 +50,9 @@ interface AppSidebarProps {
 
 export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebarProps) {
   const [location] = useLocation();
+  const { getUser, logout } = useCompanyAuth();
+  const user = getUser();
+  const isAdmin = user?.role === "admin";
 
   return (
     <Sidebar>
@@ -54,9 +61,11 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
           <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
             <Shield className="w-4 h-4 text-primary-foreground" />
           </div>
-          <div>
-            <h2 className="text-sm font-semibold" data-testid="text-app-title">EchoPath Nexus</h2>
-            <p className="text-xs text-muted-foreground">Safety Monitoring</p>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold truncate" data-testid="text-app-title">EchoPath Nexus</h2>
+            <p className="text-xs text-muted-foreground truncate" data-testid="text-company-name">
+              {user ? `${user.fullName}` : "Safety Monitoring"}
+            </p>
           </div>
         </div>
       </SidebarHeader>
@@ -109,12 +118,39 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
                   </SidebarMenuItem>
                 );
               })}
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild data-active={location === "/user-management"}>
+                    <Link href="/user-management" data-testid="link-nav-user-management">
+                      <UserCog className="w-4 h-4" />
+                      <span>User Management</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
-        <p className="text-xs text-muted-foreground">v1.0 - Multi-Tenant Safety System</p>
+      <SidebarFooter className="p-4 space-y-2">
+        {user && (
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <p className="font-medium truncate" data-testid="text-sidebar-username">{user.username}</p>
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize" data-testid="badge-user-role">
+              {user.role}
+            </Badge>
+          </div>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          onClick={logout}
+          data-testid="button-logout"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          Sign out
+        </Button>
       </SidebarFooter>
     </Sidebar>
   );

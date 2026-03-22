@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { ChevronRight, MapPin, Phone, Heart } from "lucide-react";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -16,8 +17,10 @@ function getStatusBadge(status: string) {
 }
 
 export default function Residents() {
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
   const { data: residents, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/residents"],
+    queryKey: [`/api/entities/${eid}/residents`],
   });
 
   if (isLoading) {

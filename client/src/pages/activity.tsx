@@ -2,10 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Activity as ActivityIcon, Radio } from "lucide-react";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 export default function ActivityLog() {
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
   const { data: events, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/entities/1/motion-events"],
+    queryKey: [`/api/entities/${eid}/motion-events`],
   });
 
   if (isLoading) {

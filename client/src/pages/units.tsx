@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 import {
   Dialog,
   DialogContent,
@@ -101,6 +102,8 @@ interface PairingCode {
 }
 
 export default function Units() {
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
   const { toast } = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [unitId, setUnitId] = useState("");
@@ -115,32 +118,32 @@ export default function Units() {
   const [pairingUnit, setPairingUnit] = useState<number | null>(null);
 
   const { data: units, isLoading } = useQuery<UnitData[]>({
-    queryKey: ["/api/entities/1/units"],
+    queryKey: [`/api/entities/${eid}/units`],
   });
 
   const { data: allResidents } = useQuery<UnitResident[]>({
-    queryKey: ["/api/entities/1/residents"],
+    queryKey: [`/api/entities/${eid}/residents`],
   });
 
   const { data: allSensors } = useQuery<UnitSensor[]>({
-    queryKey: ["/api/entities/1/sensors"],
+    queryKey: [`/api/entities/${eid}/sensors`],
   });
 
   const { data: speakerEvents } = useQuery<SpeakerEvent[]>({
-    queryKey: ["/api/entities/1/units", speakerEventsUnit, "speaker/events"],
-    queryFn: () => fetch(`/api/entities/1/units/${speakerEventsUnit}/speaker/events?limit=10`).then(r => r.json()),
+    queryKey: [`/api/entities/${eid}/units`, speakerEventsUnit, "speaker/events"],
+    queryFn: () => fetch(`/api/entities/${eid}/units/${speakerEventsUnit}/speaker/events?limit=10`).then(r => r.json()),
     enabled: !!speakerEventsUnit,
   });
 
   const { data: pairingCodes } = useQuery<PairingCode[]>({
-    queryKey: ["/api/entities/1/units", pairingUnit, "pairing-codes"],
-    queryFn: () => fetch(`/api/entities/1/units/${pairingUnit}/pairing-codes`).then(r => r.json()),
+    queryKey: [`/api/entities/${eid}/units`, pairingUnit, "pairing-codes"],
+    queryFn: () => fetch(`/api/entities/${eid}/units/${pairingUnit}/pairing-codes`).then(r => r.json()),
     enabled: !!pairingUnit,
   });
 
   const createMutation = useMutation({
     mutationFn: () =>
-      apiRequest("POST", "/api/entities/1/units", {
+      apiRequest("POST", `/api/entities/${eid}/units`, {
         unitIdentifier: unitId,
         label: unitLabel || undefined,
         hardwareType,
@@ -149,7 +152,7 @@ export default function Units() {
         floor: floor || undefined,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/units`] });
       toast({ title: "Unit created successfully" });
       setCreateOpen(false);
       setUnitId("");
@@ -165,21 +168,21 @@ export default function Units() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/entities/1/units/${id}`),
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/entities/${eid}/units/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/residents"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/sensors"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/units`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/residents`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/sensors`] });
       toast({ title: "Unit deleted" });
     },
   });
 
   const assignResidentMutation = useMutation({
     mutationFn: ({ unitId, residentId }: { unitId: number; residentId: number }) =>
-      apiRequest("POST", `/api/entities/1/units/${unitId}/assign-resident`, { residentId }),
+      apiRequest("POST", `/api/entities/${eid}/units/${unitId}/assign-resident`, { residentId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/residents"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/units`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/residents`] });
       setAssignResidentUnit(null);
       toast({ title: "Resident assigned to unit" });
     },
@@ -187,10 +190,10 @@ export default function Units() {
 
   const assignSensorMutation = useMutation({
     mutationFn: ({ unitId, sensorId }: { unitId: number; sensorId: number }) =>
-      apiRequest("POST", `/api/entities/1/units/${unitId}/assign-sensor`, { sensorId }),
+      apiRequest("POST", `/api/entities/${eid}/units/${unitId}/assign-sensor`, { sensorId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/sensors"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/units`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/sensors`] });
       setAssignSensorUnit(null);
       toast({ title: "Sensor assigned to unit" });
     },
@@ -198,22 +201,22 @@ export default function Units() {
 
   const unassignSensorMutation = useMutation({
     mutationFn: ({ unitId, sensorId }: { unitId: number; sensorId: number }) =>
-      apiRequest("POST", `/api/entities/1/units/${unitId}/unassign-sensor`, { sensorId }),
+      apiRequest("POST", `/api/entities/${eid}/units/${unitId}/unassign-sensor`, { sensorId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/sensors"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/units`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/sensors`] });
       toast({ title: "Sensor removed from unit" });
     },
   });
 
   const pushCheckInMutation = useMutation({
     mutationFn: (unitId: number) =>
-      apiRequest("POST", `/api/entities/1/units/${unitId}/speaker/check-in`, {
+      apiRequest("POST", `/api/entities/${eid}/units/${unitId}/speaker/check-in`, {
         scenarioType: "inactivity_gentle",
         escalationLevel: 0,
       }),
     onSuccess: (_, unitId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units", unitId, "speaker/events"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/units`, unitId, "speaker/events"] });
       toast({ title: "Check-in pushed to speaker" });
     },
     onError: (err: any) => {
@@ -223,9 +226,9 @@ export default function Units() {
 
   const generatePairingMutation = useMutation({
     mutationFn: (unitId: number) =>
-      apiRequest("POST", `/api/entities/1/units/${unitId}/pairing-code`),
+      apiRequest("POST", `/api/entities/${eid}/units/${unitId}/pairing-code`),
     onSuccess: (_, unitId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities/1/units", unitId, "pairing-codes"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/units`, unitId, "pairing-codes"] });
       toast({ title: "Pairing code generated" });
     },
   });
