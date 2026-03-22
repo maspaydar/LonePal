@@ -582,7 +582,7 @@ export async function registerRoutes(
       await storage.createMessage({ conversationId: conv.id, role: "user", content: message.trim() });
 
       const allMessages = await storage.getMessages(conv.id);
-      const history = allMessages.map((m: any) => ({ role: m.role, content: m.content }));
+      const history = allMessages.map(m => ({ role: m.role, content: m.content }));
       const activeScens = await storage.getActiveScenariosForResident(resident.id);
       const activeScenario = activeScens[0];
 

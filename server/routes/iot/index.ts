@@ -55,7 +55,7 @@ router.post("/sensor-data", async (req, res) => {
       // Cross-entity consistency check: if both sensor and unit resolved, they must belong to the same entity
       if (entityId !== undefined && entityId !== unit.entityId) {
         dailyLogger.warn("esp32", `Cross-entity mismatch for MAC ${deviceMac}: sensor entity=${entityId}, unit entity=${unit.entityId}`);
-        return res.status(409).json({ error: "Device registration inconsistency detected. Contact system administrator." });
+        return res.status(403).json({ error: "Device MAC is registered to a different entity. Access denied." });
       }
 
       entityId = entityId || unit.entityId;

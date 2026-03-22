@@ -13,6 +13,7 @@ export interface MobileAuthPayload {
 declare global {
   namespace Express {
     interface Request {
+      mobileUser?: MobileAuthPayload;
       mobileAuth?: MobileAuthPayload;
     }
   }
@@ -58,6 +59,7 @@ export async function mobileAuthMiddleware(req: Request, res: Response, next: Ne
 
   await storage.updateMobileTokenLastUsed(dbToken.id);
 
+  req.mobileUser = payload;
   req.mobileAuth = payload;
   next();
 }

@@ -19,7 +19,7 @@ const router = Router();
  */
 router.post("/respond", mobileAuthMiddleware, async (req, res) => {
   try {
-    const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileAuth!;
+    const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileUser!;
     const { conversationId, message } = req.body;
 
     if (!conversationId || !message) {
@@ -92,7 +92,7 @@ router.post("/respond", mobileAuthMiddleware, async (req, res) => {
  */
 router.post("/respond-stream", mobileAuthMiddleware, async (req, res) => {
   try {
-    const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileAuth!;
+    const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileUser!;
     const { conversationId, message, audioBase64, audioMimeType } = req.body;
 
     if (!conversationId) {
@@ -199,7 +199,7 @@ router.post("/respond-stream", mobileAuthMiddleware, async (req, res) => {
  * Tenant scope: :id must match the residentId in the JWT — residents can only query their own status.
  */
 router.get("/resident/:id/status", mobileAuthMiddleware, async (req, res) => {
-  const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileAuth!;
+  const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileUser!;
   const requestedId = Number(req.params.id);
 
   if (requestedId !== jwtResidentId) {
@@ -317,7 +317,7 @@ router.get("/sync/:entityId/:userId", mobileAuthMiddleware, async (req, res) => 
     const entityId = parseInt(req.params.entityId as string);
     const userId = parseInt(req.params.userId as string);
 
-    if (req.mobileAuth!.residentId !== userId || req.mobileAuth!.entityId !== entityId) {
+    if (req.mobileUser!.residentId !== userId || req.mobileUser!.entityId !== entityId) {
       return res.status(403).json({ error: "Access denied" });
     }
 
@@ -363,7 +363,7 @@ router.get("/sync/:entityId/:userId", mobileAuthMiddleware, async (req, res) => 
  */
 router.get("/me", mobileAuthMiddleware, async (req, res) => {
   try {
-    const { residentId, entityId } = req.mobileAuth!;
+    const { residentId, entityId } = req.mobileUser!;
 
     const resident = await storage.getResident(residentId);
     if (!resident || resident.entityId !== entityId) {
@@ -435,9 +435,9 @@ router.get("/me", mobileAuthMiddleware, async (req, res) => {
  */
 router.get("/profile", mobileAuthMiddleware, async (req, res) => {
   try {
-    const { residentId } = req.mobileAuth!;
+    const { residentId, entityId } = req.mobileUser!;
     const resident = await storage.getResident(residentId);
-    if (!resident) {
+    if (!resident || resident.entityId !== entityId) {
       return res.status(404).json({ error: "Resident not found" });
     }
     res.json({
@@ -462,7 +462,7 @@ router.get("/profile", mobileAuthMiddleware, async (req, res) => {
  */
 router.post("/conversation", mobileAuthMiddleware, async (req, res) => {
   try {
-    const { residentId, entityId } = req.mobileAuth!;
+    const { residentId, entityId } = req.mobileUser!;
     const resident = await storage.getResident(residentId);
     if (!resident || resident.entityId !== entityId) {
       return res.status(403).json({ error: "Access denied" });
@@ -494,7 +494,7 @@ router.post("/conversation", mobileAuthMiddleware, async (req, res) => {
  */
 router.get("/preferences", mobileAuthMiddleware, async (req, res) => {
   try {
-    const { residentId } = req.mobileAuth!;
+    const { residentId } = req.mobileUser!;
     const prefs = await storage.getUserPreferences(residentId);
     if (!prefs) {
       return res.json({
@@ -518,7 +518,7 @@ router.get("/preferences", mobileAuthMiddleware, async (req, res) => {
  */
 router.post("/preferences", mobileAuthMiddleware, async (req, res) => {
   try {
-    const { residentId, entityId } = req.mobileAuth!;
+    const { residentId, entityId } = req.mobileUser!;
     const { aiVerbosity, quietHoursStart, quietHoursEnd, preferredVoiceTone } = req.body;
 
     const parsed = insertUserPreferencesSchema.parse({
@@ -546,7 +546,7 @@ router.post("/preferences", mobileAuthMiddleware, async (req, res) => {
  */
 router.post("/pair", mobileAuthMiddleware, async (req, res) => {
   try {
-    const { residentId, entityId } = req.mobileAuth!;
+    const { residentId, entityId } = req.mobileUser!;
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: "Pairing code is required" });
 
