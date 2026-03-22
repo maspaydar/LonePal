@@ -64,6 +64,7 @@ export default function UserManagement() {
   const eid = getUser()?.entityId;
   const { data: users, isLoading } = useQuery<CompanyUserRecord[]>({
     queryKey: ["/api/company/users", eid],
+    queryFn: () => apiRequest("GET", "/api/company/users").then((r) => r.json()),
   });
 
   const createUserMutation = useMutation({

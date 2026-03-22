@@ -27,7 +27,7 @@ router.post("/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    if ((user as any).isActive === false) {
+    if (user.isActive === false) {
       return res.status(401).json({ error: "Account has been deactivated" });
     }
 
