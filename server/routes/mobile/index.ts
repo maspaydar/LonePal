@@ -370,8 +370,8 @@ router.get("/me", mobileAuthMiddleware, async (req, res) => {
       return res.status(404).json({ error: "Resident not found" });
     }
 
-    let unit = null;
-    let sensors: any[] = [];
+    let unit: { id: number; unitIdentifier: string; label: string | null; floor: string | null; hardwareType: string; smartSpeakerId: string | null; esp32DeviceMac: string | null } | null = null;
+    let sensors: { id: number; sensorType: string; location: string; isActive: boolean }[] = [];
     let isPaired = false;
 
     if (resident.unitId) {

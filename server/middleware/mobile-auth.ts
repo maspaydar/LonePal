@@ -48,7 +48,11 @@ export async function mobileAuthMiddleware(req: Request, res: Response, next: Ne
     return res.status(401).json({ error: "Token has been revoked" });
   }
 
-  if (dbToken.id !== payload.tokenId || dbToken.residentId !== payload.residentId) {
+  if (
+    dbToken.id !== payload.tokenId ||
+    dbToken.residentId !== payload.residentId ||
+    dbToken.entityId !== payload.entityId
+  ) {
     return res.status(401).json({ error: "Token mismatch" });
   }
 

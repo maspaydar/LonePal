@@ -25,7 +25,7 @@ const esp32SensorPayloadSchema = z.object({
  * Tenant scope: entityId is ALWAYS derived from the registered sensor/unit record in the DB.
  *   The request body never supplies an entityId — this prevents cross-tenant spoofing.
  *   If the deviceMac is not registered to any sensor or unit, the request is rejected with 404.
- *   If sensor and unit resolve to different entities (data integrity violation), the request is rejected with 409.
+ *   If sensor and unit resolve to different entities (cross-tenant mismatch), the request is rejected with 403.
  */
 router.post("/sensor-data", async (req, res) => {
   try {
