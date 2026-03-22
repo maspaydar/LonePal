@@ -71,8 +71,9 @@ function getSeverityVariant(severity: string): "default" | "secondary" | "destru
 }
 
 export default function Dashboard() {
-  const { getEntityId } = useCompanyAuth();
+  const { getEntityId, getEntity } = useCompanyAuth();
   const eid = getEntityId();
+  const entity = getEntity();
   const { toast } = useToast();
 
   const { data: dashData, isLoading } = useQuery<any>({
@@ -130,7 +131,7 @@ export default function Dashboard() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold" data-testid="text-dashboard-title">Nexus Dashboard</h1>
-        <p className="text-muted-foreground">Sunrise Senior Living - Real-time monitoring</p>
+        <p className="text-muted-foreground">{entity?.name ?? "Your Facility"} - Real-time monitoring</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
