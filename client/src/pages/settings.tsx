@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,17 +9,13 @@ import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 export default function SettingsPage() {
   const { toast } = useToast();
-  const { getEntityId } = useCompanyAuth();
+  const { getEntityId, getEntity } = useCompanyAuth();
   const eid = getEntityId();
-
-  const { data: entities } = useQuery<any[]>({
-    queryKey: ["/api/entities"],
-  });
+  const entity = getEntity();
 
   const seedMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/seed"),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities"] });
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
       toast({ title: "Demo data loaded" });
     },
@@ -78,23 +74,20 @@ export default function SettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Shield className="h-4 w-4" /> Entities
+              <Shield className="h-4 w-4" /> Your Facility
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {entities?.map((entity: any) => (
-              <div key={entity.id} className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
+            {entity ? (
+              <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
                 <div className="flex-1">
-                  <p className="text-sm font-medium">{entity.name}</p>
-                  <p className="text-xs text-muted-foreground">{entity.type} - {entity.address}</p>
+                  <p className="text-sm font-medium" data-testid="text-entity-name">{entity.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{entity.type}</p>
                 </div>
-                <Badge variant={entity.isActive ? "secondary" : "outline"} className="text-xs">
-                  {entity.isActive ? "Active" : "Inactive"}
-                </Badge>
+                <Badge variant="secondary" className="text-xs">Active</Badge>
               </div>
-            ))}
-            {(!entities || entities.length === 0) && (
-              <p className="text-sm text-muted-foreground">No entities configured. Load demo data to create one.</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">No facility configured.</p>
             )}
           </CardContent>
         </Card>

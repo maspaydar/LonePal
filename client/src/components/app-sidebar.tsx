@@ -50,8 +50,9 @@ interface AppSidebarProps {
 
 export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebarProps) {
   const [location] = useLocation();
-  const { getUser, logout } = useCompanyAuth();
+  const { getUser, getEntity, logout } = useCompanyAuth();
   const user = getUser();
+  const entity = getEntity();
   const isAdmin = user?.role === "admin";
 
   return (
@@ -64,7 +65,7 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
           <div className="min-w-0">
             <h2 className="text-sm font-semibold truncate" data-testid="text-app-title">EchoPath Nexus</h2>
             <p className="text-xs text-muted-foreground truncate" data-testid="text-company-name">
-              {user ? `${user.fullName}` : "Safety Monitoring"}
+              {entity ? entity.name : "Safety Monitoring"}
             </p>
           </div>
         </div>

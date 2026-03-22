@@ -131,13 +131,13 @@ export default function Units() {
 
   const { data: speakerEvents } = useQuery<SpeakerEvent[]>({
     queryKey: [`/api/entities/${eid}/units`, speakerEventsUnit, "speaker/events"],
-    queryFn: () => fetch(`/api/entities/${eid}/units/${speakerEventsUnit}/speaker/events?limit=10`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/entities/${eid}/units/${speakerEventsUnit}/speaker/events?limit=10`).then(r => r.json()),
     enabled: !!speakerEventsUnit,
   });
 
   const { data: pairingCodes } = useQuery<PairingCode[]>({
     queryKey: [`/api/entities/${eid}/units`, pairingUnit, "pairing-codes"],
-    queryFn: () => fetch(`/api/entities/${eid}/units/${pairingUnit}/pairing-codes`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/entities/${eid}/units/${pairingUnit}/pairing-codes`).then(r => r.json()),
     enabled: !!pairingUnit,
   });
 

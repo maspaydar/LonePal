@@ -2,6 +2,7 @@ import { useLocation } from "wouter";
 
 const CO_TOKEN_KEY = "co_token";
 const CO_USER_KEY = "co_user";
+const CO_ENTITY_KEY = "co_entity";
 
 export interface CompanyUser {
   id: string;
@@ -24,6 +25,15 @@ export function getCompanyToken(): string {
 export function getCompanyUser(): CompanyUser | null {
   try {
     const raw = localStorage.getItem(CO_USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getCompanyEntity(): { id: number; name: string; type: string } | null {
+  try {
+    const raw = localStorage.getItem(CO_ENTITY_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -63,11 +73,19 @@ export function useCompanyAuth() {
   function setSession(session: CompanySession) {
     localStorage.setItem(CO_TOKEN_KEY, session.token);
     localStorage.setItem(CO_USER_KEY, JSON.stringify({ ...session.user, entityId: session.entity?.id ?? session.user.entityId }));
+    if (session.entity) {
+      localStorage.setItem(CO_ENTITY_KEY, JSON.stringify(session.entity));
+    }
+  }
+
+  function getEntity(): { id: number; name: string; type: string } | null {
+    return getCompanyEntity();
   }
 
   function logout() {
     localStorage.removeItem(CO_TOKEN_KEY);
     localStorage.removeItem(CO_USER_KEY);
+    localStorage.removeItem(CO_ENTITY_KEY);
     setLocation("/login");
   }
 
@@ -75,5 +93,5 @@ export function useCompanyAuth() {
     return Boolean(localStorage.getItem(CO_TOKEN_KEY));
   }
 
-  return { getToken, getUser, getEntityId, authHeaders, setSession, logout, isAuthenticated };
+  return { getToken, getUser, getEntity, getEntityId, authHeaders, setSession, logout, isAuthenticated };
 }

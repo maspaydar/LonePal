@@ -162,11 +162,12 @@ router.patch("/users/:userId", requireCompanyAdmin, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const { fullName, role, password } = req.body;
+    const { fullName, role, password, isActive } = req.body;
     const updateData: Record<string, any> = {};
     if (fullName) updateData.fullName = fullName;
     if (role && ["admin", "manager", "staff"].includes(role)) updateData.role = role;
     if (password) updateData.password = await bcrypt.hash(password, 12);
+    if (typeof isActive === "boolean") updateData.isActive = isActive;
 
     const updated = await storage.updateUser(userId, updateData);
     if (!updated) return res.status(404).json({ error: "User not found" });

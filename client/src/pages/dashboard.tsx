@@ -93,7 +93,6 @@ export default function Dashboard() {
   const seedMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/seed"),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/entities"] });
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/ai-insights`] });
       toast({ title: "Demo data loaded successfully" });
