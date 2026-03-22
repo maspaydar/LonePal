@@ -36,6 +36,15 @@ function CompanyAuthGuard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminOnlyGuard({ children }: { children: ReactNode }) {
+  const { getUser } = useCompanyAuth();
+  const user = getUser();
+  if (user && user.role !== "admin") {
+    return <Redirect to="/" />;
+  }
+  return <>{children}</>;
+}
+
 function AdminRouter() {
   return (
     <Switch>
@@ -50,7 +59,11 @@ function AdminRouter() {
       <Route path="/scenario-config" component={ScenarioConfig} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/conversations/:id" component={ConversationDetail} />
-      <Route path="/user-management" component={UserManagement} />
+      <Route path="/user-management">
+        <AdminOnlyGuard>
+          <UserManagement />
+        </AdminOnlyGuard>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -62,6 +75,7 @@ function AppLayout() {
   const { data: dashData } = useQuery<any>({
     queryKey: [`/api/entities/${eid}/dashboard`],
     refetchInterval: 15000,
+    enabled: !!eid,
   });
 
   const handleWsMessage = useCallback((msg: any) => {
