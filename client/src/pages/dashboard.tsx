@@ -397,6 +397,8 @@ type BroadcastFormValues = z.infer<typeof broadcastFormSchema>;
 
 function BroadcastForm() {
   const { toast } = useToast();
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
 
   const form = useForm<BroadcastFormValues>({
     resolver: zodResolver(broadcastFormSchema),
@@ -492,6 +494,8 @@ function TriggerButton({ residentId, scenarioType, label, location }: {
   location?: string;
 }) {
   const { toast } = useToast();
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
 
   const mutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/trigger-scenario", {

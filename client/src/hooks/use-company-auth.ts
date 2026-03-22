@@ -1,4 +1,5 @@
 import { useLocation } from "wouter";
+import { queryClient } from "@/lib/queryClient";
 
 const CO_TOKEN_KEY = "co_token";
 const CO_USER_KEY = "co_user";
@@ -86,6 +87,7 @@ export function useCompanyAuth() {
     localStorage.removeItem(CO_TOKEN_KEY);
     localStorage.removeItem(CO_USER_KEY);
     localStorage.removeItem(CO_ENTITY_KEY);
+    queryClient.clear();
     setLocation("/login");
   }
 

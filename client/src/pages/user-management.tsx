@@ -61,14 +61,15 @@ export default function UserManagement() {
   const [newPassword, setNewPassword] = useState("");
   const [addForm, setAddForm] = useState({ username: "", fullName: "", password: "", role: "staff" as UserRole });
 
+  const eid = getUser()?.entityId;
   const { data: users, isLoading } = useQuery<CompanyUserRecord[]>({
-    queryKey: ["/api/company/users"],
+    queryKey: ["/api/company/users", eid],
   });
 
   const createUserMutation = useMutation({
     mutationFn: (data: typeof addForm) => apiRequest("POST", "/api/company/users", data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/company/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company/users", eid] });
       setShowAddDialog(false);
       setAddForm({ username: "", fullName: "", password: "", role: "staff" });
       toast({ title: "User created", description: "New staff account is ready" });
@@ -82,7 +83,7 @@ export default function UserManagement() {
     mutationFn: ({ userId, data }: { userId: string; data: Record<string, unknown> }) =>
       apiRequest("PATCH", `/api/company/users/${userId}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/company/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/company/users", eid] });
       setShowResetDialog(false);
       setSelectedUser(null);
       setNewPassword("");

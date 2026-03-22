@@ -1,8 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { getCompanyToken } from "@/hooks/use-company-auth";
+import { getStoredCompanyToken } from "@/lib/company-token";
 
 function getAuthHeaders(): Record<string, string> {
-  const token = getCompanyToken();
+  const token = getStoredCompanyToken();
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
   return headers;
