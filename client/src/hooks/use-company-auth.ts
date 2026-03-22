@@ -40,8 +40,8 @@ export function getCompanyEntity(): { id: number; name: string; type: string } |
   }
 }
 
-export function getCompanyEntityId(): number {
-  return getCompanyUser()?.entityId ?? 1;
+export function getCompanyEntityId(): number | null {
+  return getCompanyUser()?.entityId ?? null;
 }
 
 export function getCompanyAuthHeaders(): Record<string, string> {
@@ -62,7 +62,7 @@ export function useCompanyAuth() {
     return getCompanyUser();
   }
 
-  function getEntityId(): number {
+  function getEntityId(): number | null {
     return getCompanyEntityId();
   }
 

@@ -27,6 +27,10 @@ router.post("/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
+    if ((user as any).isActive === false) {
+      return res.status(401).json({ error: "Account has been deactivated" });
+    }
+
     const passwordValid = await bcrypt.compare(password, user.password);
     if (!passwordValid) {
       return res.status(401).json({ error: "Invalid credentials" });

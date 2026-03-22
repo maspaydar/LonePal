@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { useCompanyAuth } from "@/hooks/use-company-auth";
 import {
   ArrowLeft,
   MapPin,
@@ -24,17 +25,22 @@ export default function ResidentDetail() {
   const [, params] = useRoute("/residents/:id");
   const residentId = Number(params?.id);
   const { toast } = useToast();
+  const { getEntityId } = useCompanyAuth();
+  const eid = getEntityId();
 
   const { data: resident, isLoading } = useQuery<any>({
-    queryKey: ["/api/residents", residentId],
+    queryKey: [`/api/entities/${eid}/residents`, residentId],
+    queryFn: () => apiRequest("GET", `/api/residents/${residentId}`).then(r => r.json()),
   });
 
   const { data: conversations } = useQuery<any[]>({
-    queryKey: ["/api/residents", residentId, "conversations"],
+    queryKey: [`/api/entities/${eid}/residents`, residentId, "conversations"],
+    queryFn: () => apiRequest("GET", `/api/residents/${residentId}/conversations`).then(r => r.json()),
   });
 
   const { data: motionEvents } = useQuery<any[]>({
-    queryKey: ["/api/residents", residentId, "motion-events"],
+    queryKey: [`/api/entities/${eid}/residents`, residentId, "motion-events"],
+    queryFn: () => apiRequest("GET", `/api/residents/${residentId}/motion-events`).then(r => r.json()),
   });
 
   const triggerMutation = useMutation({
@@ -42,8 +48,8 @@ export default function ResidentDetail() {
       apiRequest("POST", "/api/trigger-scenario", { residentId, scenarioType }),
     onSuccess: async (res) => {
       const data = await res.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/residents", residentId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/residents", residentId, "conversations"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/residents`, residentId] });
+      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/residents`, residentId, "conversations"] });
       toast({ title: "Check-in initiated", description: data.aiMessage?.slice(0, 80) });
     },
   });
