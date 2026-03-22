@@ -260,7 +260,7 @@ export async function registerRoutes(
   });
 
   // --- Resident routes ---
-  app.get("/api/entities/:entityId/residents", async (req, res) => {
+  app.get("/api/entities/:entityId/residents", requireCompanyAuth, async (req, res) => {
     const result = await storage.getResidents(Number(req.params.entityId));
     res.json(result);
   });
@@ -302,7 +302,7 @@ export async function registerRoutes(
     res.json(resident);
   });
 
-  app.post("/api/entities/:entityId/residents", async (req, res) => {
+  app.post("/api/entities/:entityId/residents", requireCompanyAuth, async (req, res) => {
     const data = { ...req.body, entityId: Number(req.params.entityId) };
     const parsed = insertResidentSchema.safeParse(data);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -320,12 +320,12 @@ export async function registerRoutes(
   });
 
   // --- Sensor routes ---
-  app.get("/api/entities/:entityId/sensors", async (req, res) => {
+  app.get("/api/entities/:entityId/sensors", requireCompanyAuth, async (req, res) => {
     const result = await storage.getSensors(Number(req.params.entityId));
     res.json(result);
   });
 
-  app.post("/api/entities/:entityId/sensors", async (req, res) => {
+  app.post("/api/entities/:entityId/sensors", requireCompanyAuth, async (req, res) => {
     const data = { ...req.body, entityId: Number(req.params.entityId) };
     const parsed = insertSensorSchema.safeParse(data);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -343,7 +343,7 @@ export async function registerRoutes(
   });
 
   // --- Motion Events ---
-  app.get("/api/entities/:entityId/motion-events", async (req, res) => {
+  app.get("/api/entities/:entityId/motion-events", requireCompanyAuth, async (req, res) => {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
     const result = await storage.getMotionEvents(Number(req.params.entityId), limit);
     res.json(result);
@@ -457,12 +457,12 @@ export async function registerRoutes(
   });
 
   // --- Scenario Config routes ---
-  app.get("/api/entities/:entityId/scenario-configs", async (req, res) => {
+  app.get("/api/entities/:entityId/scenario-configs", requireCompanyAuth, async (req, res) => {
     const result = await storage.getScenarioConfigs(Number(req.params.entityId));
     res.json(result);
   });
 
-  app.post("/api/entities/:entityId/scenario-configs", async (req, res) => {
+  app.post("/api/entities/:entityId/scenario-configs", requireCompanyAuth, async (req, res) => {
     const data = { ...req.body, entityId: Number(req.params.entityId) };
     const parsed = insertScenarioConfigSchema.safeParse(data);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -480,7 +480,7 @@ export async function registerRoutes(
   });
 
   // --- Active Scenarios ---
-  app.get("/api/entities/:entityId/active-scenarios", async (req, res) => {
+  app.get("/api/entities/:entityId/active-scenarios", requireCompanyAuth, async (req, res) => {
     const result = await storage.getActiveScenarios(Number(req.params.entityId));
     res.json(result);
   });
@@ -497,13 +497,13 @@ export async function registerRoutes(
   });
 
   // --- Alerts ---
-  app.get("/api/entities/:entityId/alerts", async (req, res) => {
+  app.get("/api/entities/:entityId/alerts", requireCompanyAuth, async (req, res) => {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
     const result = await storage.getAlerts(Number(req.params.entityId), limit);
     res.json(result);
   });
 
-  app.get("/api/entities/:entityId/alerts/unread", async (req, res) => {
+  app.get("/api/entities/:entityId/alerts/unread", requireCompanyAuth, async (req, res) => {
     const result = await storage.getUnreadAlerts(Number(req.params.entityId));
     res.json(result);
   });
@@ -630,7 +630,7 @@ export async function registerRoutes(
   });
 
   // --- Dashboard stats ---
-  app.get("/api/entities/:entityId/dashboard", async (req, res) => {
+  app.get("/api/entities/:entityId/dashboard", requireCompanyAuth, async (req, res) => {
     const entityId = Number(req.params.entityId);
     const [residentsList, alertsList, activeScens, sensorsList, events] = await Promise.all([
       storage.getResidents(entityId),
@@ -706,7 +706,7 @@ export async function registerRoutes(
   });
 
   // --- Unit Management API ---
-  app.get("/api/entities/:entityId/units", async (req, res) => {
+  app.get("/api/entities/:entityId/units", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitList = await storage.getUnits(entityId);
@@ -721,7 +721,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/entities/:entityId/units", async (req, res) => {
+  app.post("/api/entities/:entityId/units", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const parsed = insertUnitSchema.parse({ ...req.body, entityId });
@@ -754,7 +754,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/entities/:entityId/units/:unitId", async (req, res) => {
+  app.delete("/api/entities/:entityId/units/:unitId", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
@@ -767,7 +767,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/entities/:entityId/units/:unitId/assign-resident", async (req, res) => {
+  app.post("/api/entities/:entityId/units/:unitId/assign-resident", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
@@ -794,7 +794,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/entities/:entityId/units/:unitId/assign-sensor", async (req, res) => {
+  app.post("/api/entities/:entityId/units/:unitId/assign-sensor", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
@@ -819,7 +819,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/entities/:entityId/units/:unitId/unassign-sensor", async (req, res) => {
+  app.post("/api/entities/:entityId/units/:unitId/unassign-sensor", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
@@ -923,7 +923,7 @@ export async function registerRoutes(
   });
 
   // --- AI Mood Insights ---
-  app.get("/api/entities/:entityId/ai-insights", async (req, res) => {
+  app.get("/api/entities/:entityId/ai-insights", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const residentsList = await storage.getResidents(entityId);
@@ -997,13 +997,13 @@ export async function registerRoutes(
   });
 
   // --- Community Broadcasts ---
-  app.get("/api/entities/:entityId/broadcasts", async (req, res) => {
+  app.get("/api/entities/:entityId/broadcasts", requireCompanyAuth, async (req, res) => {
     const entityId = Number(req.params.entityId);
     const broadcasts = await storage.getCommunityBroadcasts(entityId);
     res.json(broadcasts);
   });
 
-  app.post("/api/entities/:entityId/broadcasts", async (req, res) => {
+  app.post("/api/entities/:entityId/broadcasts", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const data = {
@@ -1060,7 +1060,7 @@ export async function registerRoutes(
   });
 
   // --- Smart Speaker Gateway ---
-  app.post("/api/entities/:entityId/units/:unitId/speaker/check-in", async (req, res) => {
+  app.post("/api/entities/:entityId/units/:unitId/speaker/check-in", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
@@ -1110,7 +1110,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/entities/:entityId/units/:unitId/speaker/events", async (req, res) => {
+  app.get("/api/entities/:entityId/units/:unitId/speaker/events", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
@@ -1144,7 +1144,7 @@ export async function registerRoutes(
   });
 
   // --- Device Pairing ---
-  app.post("/api/entities/:entityId/units/:unitId/pairing-code", async (req, res) => {
+  app.post("/api/entities/:entityId/units/:unitId/pairing-code", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
@@ -1171,7 +1171,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/entities/:entityId/units/:unitId/pairing-codes", async (req, res) => {
+  app.get("/api/entities/:entityId/units/:unitId/pairing-codes", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
