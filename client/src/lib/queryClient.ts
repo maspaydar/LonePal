@@ -1,6 +1,17 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { getStoredCompanyToken } from "@/lib/company-token";
 
+const CO_TOKEN_KEY = "co_token";
+const CO_USER_KEY = "co_user";
+const CO_ENTITY_KEY = "co_entity";
+
+function clearCompanySession() {
+  localStorage.removeItem(CO_TOKEN_KEY);
+  localStorage.removeItem(CO_USER_KEY);
+  localStorage.removeItem(CO_ENTITY_KEY);
+  window.location.href = "/login";
+}
+
 function getAuthHeaders(): Record<string, string> {
   const token = getStoredCompanyToken();
   const headers: Record<string, string> = {};
@@ -9,6 +20,10 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 async function throwIfResNotOk(res: Response) {
+  if (res.status === 401 && getStoredCompanyToken()) {
+    clearCompanySession();
+    throw new Error("Session expired. Please log in again.");
+  }
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
