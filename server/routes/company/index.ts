@@ -114,6 +114,7 @@ router.get("/users", requireCompanyAdmin, async (req, res) => {
       fullName: u.fullName,
       role: u.role,
       entityId: u.entityId,
+      isActive: u.isActive,
     })));
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch users" });

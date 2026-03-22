@@ -533,6 +533,17 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.get("/api/entities/:entityId/conversations/:id", requireCompanyAuth, async (req, res) => {
+    const entityId = Number(req.params.entityId);
+    if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    const conv = await storage.getConversation(Number(req.params.id));
+    if (!conv) return res.status(404).json({ error: "Conversation not found" });
+    const resident = await storage.getResident(conv.residentId);
+    if (!resident || resident.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    const msgs = await storage.getMessages(conv.id);
+    res.json({ ...conv, messages: msgs });
+  });
+
   app.get("/api/conversations/:id", requireCompanyAuth, async (req, res) => {
     const conv = await storage.getConversation(Number(req.params.id));
     if (!conv) return res.status(404).json({ error: "Conversation not found" });

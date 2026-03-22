@@ -21,7 +21,7 @@ export default function ConversationDetail() {
 
   const { data: conversation, isLoading } = useQuery<any>({
     queryKey: ["/api/entities", eid, "conversations", conversationId],
-    queryFn: () => apiRequest("GET", `/api/conversations/${conversationId}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/entities/${eid}/conversations/${conversationId}`).then(r => r.json()),
     enabled: !!eid,
     refetchInterval: 5000,
   });

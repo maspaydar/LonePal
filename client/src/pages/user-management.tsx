@@ -148,12 +148,13 @@ export default function UserManagement() {
                   <TableHead>Name</TableHead>
                   <TableHead>Username</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(users ?? []).map((user) => (
-                  <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
+                  <TableRow key={user.id} data-testid={`row-user-${user.id}`} className={user.isActive === false ? "opacity-60" : ""}>
                     <TableCell className="font-medium" data-testid={`text-user-name-${user.id}`}>
                       {user.fullName}
                       {user.id === currentUser?.id && (
@@ -166,6 +167,14 @@ export default function UserManagement() {
                     <TableCell>
                       <Badge variant={roleBadgeVariant[user.role] ?? "outline"} data-testid={`badge-role-${user.id}`}>
                         {user.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={user.isActive === false ? "destructive" : "outline"}
+                        data-testid={`badge-status-${user.id}`}
+                      >
+                        {user.isActive === false ? "Inactive" : "Active"}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
