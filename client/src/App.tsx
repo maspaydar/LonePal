@@ -39,7 +39,7 @@ function CompanyAuthGuard({ children }: { children: ReactNode }) {
 function AdminOnlyGuard({ children }: { children: ReactNode }) {
   const { getUser } = useCompanyAuth();
   const user = getUser();
-  if (user && user.role !== "admin") {
+  if (!user || user.role !== "admin") {
     return <Redirect to="/" />;
   }
   return <>{children}</>;
