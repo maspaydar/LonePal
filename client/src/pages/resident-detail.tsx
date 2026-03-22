@@ -30,17 +30,20 @@ export default function ResidentDetail() {
 
   const { data: resident, isLoading } = useQuery<any>({
     queryKey: [`/api/entities/${eid}/residents`, residentId],
-    queryFn: () => apiRequest("GET", `/api/residents/${residentId}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/entities/${eid}/residents/${residentId}`).then(r => r.json()),
+    enabled: eid !== null,
   });
 
   const { data: conversations } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/residents`, residentId, "conversations"],
-    queryFn: () => apiRequest("GET", `/api/residents/${residentId}/conversations`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/entities/${eid}/residents/${residentId}/conversations`).then(r => r.json()),
+    enabled: eid !== null,
   });
 
   const { data: motionEvents } = useQuery<any[]>({
     queryKey: [`/api/entities/${eid}/residents`, residentId, "motion-events"],
-    queryFn: () => apiRequest("GET", `/api/residents/${residentId}/motion-events`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/entities/${eid}/residents/${residentId}/motion-events`).then(r => r.json()),
+    enabled: eid !== null,
   });
 
   const triggerMutation = useMutation({

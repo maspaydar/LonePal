@@ -265,6 +265,36 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.get("/api/entities/:entityId/residents/:id", requireCompanyAuth, async (req, res) => {
+    const entityId = Number(req.params.entityId);
+    if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    const resident = await storage.getResident(Number(req.params.id));
+    if (!resident) return res.status(404).json({ error: "Resident not found" });
+    if (resident.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    res.json(resident);
+  });
+
+  app.get("/api/entities/:entityId/residents/:id/conversations", requireCompanyAuth, async (req, res) => {
+    const entityId = Number(req.params.entityId);
+    if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    const resident = await storage.getResident(Number(req.params.id));
+    if (!resident) return res.status(404).json({ error: "Resident not found" });
+    if (resident.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    const result = await storage.getConversations(Number(req.params.id));
+    res.json(result);
+  });
+
+  app.get("/api/entities/:entityId/residents/:id/motion-events", requireCompanyAuth, async (req, res) => {
+    const entityId = Number(req.params.entityId);
+    if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    const resident = await storage.getResident(Number(req.params.id));
+    if (!resident) return res.status(404).json({ error: "Resident not found" });
+    if (resident.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const result = await storage.getResidentMotionEvents(Number(req.params.id), limit);
+    res.json(result);
+  });
+
   app.get("/api/residents/:id", requireCompanyAuth, async (req, res) => {
     const resident = await storage.getResident(Number(req.params.id));
     if (!resident) return res.status(404).json({ error: "Resident not found" });
