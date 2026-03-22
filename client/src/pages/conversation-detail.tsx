@@ -28,11 +28,7 @@ export default function ConversationDetail() {
 
   const respondMutation = useMutation({
     mutationFn: (message: string) =>
-      apiRequest("POST", "/api/mobile/respond", {
-        residentId: conversation?.residentId,
-        conversationId,
-        message,
-      }),
+      apiRequest("POST", `/api/entities/${eid}/conversations/${conversationId}/messages`, { message }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/entities", eid, "conversations", conversationId] });
       setInputValue("");

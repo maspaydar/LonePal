@@ -562,6 +562,43 @@ export async function registerRoutes(
     res.json(msgs);
   });
 
+  // Company admin sends a message into a conversation (used by conversation-detail page)
+  app.post("/api/entities/:entityId/conversations/:id/messages", requireCompanyAuth, async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+
+      const conv = await storage.getConversation(Number(req.params.id));
+      if (!conv) return res.status(404).json({ error: "Conversation not found" });
+
+      const resident = await storage.getResident(conv.residentId);
+      if (!resident || resident.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+
+      const { message } = req.body;
+      if (!message || typeof message !== "string" || !message.trim()) {
+        return res.status(400).json({ error: "message is required" });
+      }
+
+      await storage.createMessage({ conversationId: conv.id, role: "user", content: message.trim() });
+
+      const allMessages = await storage.getMessages(conv.id);
+      const history = allMessages.map((m: any) => ({ role: m.role, content: m.content }));
+      const activeScens = await storage.getActiveScenariosForResident(resident.id);
+      const activeScenario = activeScens[0];
+
+      const { processResidentResponse } = await import("./ai-engine");
+      const result = await processResidentResponse(resident, activeScenario?.id || 0, message.trim(), history);
+
+      await storage.createMessage({ conversationId: conv.id, role: "assistant", content: result.aiResponse });
+
+      const updatedMsgs = await storage.getMessages(conv.id);
+      res.json({ response: result.aiResponse, isResolved: result.isResolved, messages: updatedMsgs });
+    } catch (error: any) {
+      log(`Company conversation message error: ${error}`, "company-api");
+      res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
   // --- Trigger scenario manually (for testing) ---
   app.post("/api/trigger-scenario", requireCompanyAuth, async (req, res) => {
     try {

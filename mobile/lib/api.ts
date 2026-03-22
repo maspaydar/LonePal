@@ -255,6 +255,12 @@ export async function getProfile(): Promise<any> {
   return res.json();
 }
 
+export async function getMe(): Promise<any> {
+  const res = await authFetch('/api/mobile/me');
+  if (!res.ok) throw new Error('Failed to load profile');
+  return res.json();
+}
+
 export async function createConversation(): Promise<{ id: number }> {
   const res = await authFetch('/api/mobile/conversation', {
     method: 'POST',

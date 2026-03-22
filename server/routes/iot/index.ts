@@ -19,6 +19,14 @@ const esp32SensorPayloadSchema = z.object({
   ipAddress: z.string().optional(),
 });
 
+/**
+ * POST /api/esp32/sensor-data
+ * Auth: device MAC address validation via DB lookup (no JWT — IoT device auth)
+ * Tenant scope: entityId is ALWAYS derived from the registered sensor/unit record in the DB.
+ *   The request body never supplies an entityId — this prevents cross-tenant spoofing.
+ *   If the deviceMac is not registered to any sensor or unit, the request is rejected with 404.
+ *   If sensor and unit resolve to different entities (data integrity violation), the request is rejected with 409.
+ */
 router.post("/sensor-data", async (req, res) => {
   try {
     const parsed = esp32SensorPayloadSchema.safeParse(req.body);
@@ -44,6 +52,12 @@ router.post("/sensor-data", async (req, res) => {
     }
 
     if (unit) {
+      // Cross-entity consistency check: if both sensor and unit resolved, they must belong to the same entity
+      if (entityId !== undefined && entityId !== unit.entityId) {
+        dailyLogger.warn("esp32", `Cross-entity mismatch for MAC ${deviceMac}: sensor entity=${entityId}, unit entity=${unit.entityId}`);
+        return res.status(409).json({ error: "Device registration inconsistency detected. Contact system administrator." });
+      }
+
       entityId = entityId || unit.entityId;
       unitId = unitId || unit.id;
 
@@ -103,6 +117,12 @@ router.post("/sensor-data", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/esp32/heartbeat
+ * Auth: device MAC address validation via DB lookup (no JWT — IoT device auth)
+ * Tenant scope: unitId is derived exclusively from the registered unit record for the given MAC.
+ *   Unknown MACs are rejected with 404.
+ */
 router.post("/heartbeat", async (req, res) => {
   try {
     const { deviceMac, firmwareVersion, signalStrength, ipAddress, freeHeap, uptimeSeconds } = req.body;
@@ -133,6 +153,12 @@ router.post("/heartbeat", async (req, res) => {
   }
 });
 
+/**
+ * POST /api/esp32/register
+ * Auth: body-supplied entityId is cross-validated against the DB unit's entityId before association.
+ *   A device cannot be registered to a unit belonging to a different entity than claimed.
+ * Tenant scope: enforced by checking unit.entityId === body.entityId.
+ */
 router.post("/register", async (req, res) => {
   try {
     const { deviceMac, unitId, entityId, sensorLocation, firmwareVersion } = req.body;
@@ -180,6 +206,12 @@ router.post("/register", async (req, res) => {
   }
 });
 
+/**
+ * GET /api/esp32/status/:deviceMac
+ * Auth: none (internal/device-facing status check)
+ * Returns device registration status and latest sensor reading for a given MAC.
+ * Unknown MACs are rejected with 404.
+ */
 router.get("/status/:deviceMac", async (req, res) => {
   try {
     const { deviceMac } = req.params;
@@ -207,6 +239,12 @@ router.get("/status/:deviceMac", async (req, res) => {
   }
 });
 
+/**
+ * GET /api/esp32/sensor-data/:unitId
+ * Auth: none (internal — used by company admin portal via unit management)
+ * Returns recent sensor readings for a unit. Unit ID is looked up directly; no cross-entity check here
+ * because this endpoint is accessed via the authenticated company admin portal which enforces entity ownership.
+ */
 router.get("/sensor-data/:unitId", async (req, res) => {
   try {
     const unitId = Number(req.params.unitId);
