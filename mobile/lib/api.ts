@@ -1,15 +1,23 @@
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
 
 const TOKEN_KEY = 'echopath_token';
 const RESIDENT_KEY = 'echopath_resident';
 const SERVER_URL_KEY = 'echopath_server_url';
 
-let BASE_URL = 'http://localhost:5000';
+const CONFIG_SERVER_URL: string =
+  Constants.expoConfig?.extra?.serverUrl ?? 'http://localhost:5000';
+
+let BASE_URL = CONFIG_SERVER_URL;
 
 export async function initBaseUrl(): Promise<void> {
   try {
     const stored = await SecureStore.getItemAsync(SERVER_URL_KEY);
-    if (stored) BASE_URL = stored;
+    if (stored) {
+      BASE_URL = stored;
+    } else {
+      BASE_URL = CONFIG_SERVER_URL;
+    }
   } catch {}
 }
 

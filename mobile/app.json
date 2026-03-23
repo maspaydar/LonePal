@@ -2,6 +2,7 @@
   "expo": {
     "name": "EchoPath Companion",
     "slug": "echopath-companion",
+    "owner": "YOUR_EXPO_ACCOUNT_SLUG",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,17 +10,29 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
       "backgroundColor": "#1a365d"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.echopath.companion"
+      "bundleIdentifier": "com.echopath.companion",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "EchoPath uses the microphone so you can speak to your AI companion using your voice.",
+        "NSSpeechRecognitionUsageDescription": "EchoPath uses speech recognition to convert your voice to text for the AI companion."
+      }
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a365d"
       },
-      "package": "com.echopath.companion"
+      "package": "com.echopath.companion",
+      "versionCode": 1,
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
     "plugins": [
       "expo-router",
@@ -27,6 +40,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "serverUrl": "https://YOUR_REPLIT_APP_URL.replit.app",
+      "eas": {
+        "projectId": "YOUR_EAS_PROJECT_ID"
+      }
     }
   }
 }

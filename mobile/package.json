@@ -6,7 +6,13 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "tunnel": "expo start --tunnel"
+    "tunnel": "expo start --tunnel",
+    "build:preview": "eas build --profile preview --platform all",
+    "build:production": "eas build --profile production --platform all",
+    "build:ios": "eas build --profile production --platform ios",
+    "build:android": "eas build --profile production --platform android",
+    "submit:ios": "eas submit --platform ios",
+    "submit:android": "eas submit --platform android"
   },
   "dependencies": {
     "expo": "~52.0.0",

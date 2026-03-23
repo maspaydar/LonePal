@@ -114,3 +114,76 @@ All requests go to the EchoPath Nexus backend:
 - **Minimal navigation** - three main screens only
 - **Color-coded states** - visual feedback for listening, thinking, speaking
 - **Text-to-speech** - all AI responses are read aloud automatically
+
+## App Store Submission
+
+### Before You Build
+
+Update the following placeholder values in `app.json` before running a production build:
+
+| Field | Location in app.json | What to set |
+|---|---|---|
+| `owner` | `expo.owner` | Your Expo account username (from [expo.dev](https://expo.dev)) |
+| `serverUrl` | `expo.extra.serverUrl` | Your deployed Replit backend URL (e.g. `https://your-app.replit.app`) |
+| `projectId` | `expo.extra.eas.projectId` | The UUID from `eas init` or your Expo dashboard |
+
+### EAS Build Setup
+
+1. **Install EAS CLI** on your local machine:
+   ```bash
+   npm install -g eas-cli
+   ```
+
+2. **Log in to your Expo account:**
+   ```bash
+   eas login
+   ```
+
+3. **Initialize the project** (links it to your Expo account and sets the projectId):
+   ```bash
+   cd mobile
+   eas init
+   ```
+
+4. **Run a preview build** (internal distribution, no store credentials needed):
+   ```bash
+   npm run build:preview
+   ```
+
+5. **Run a production build** (requires Apple Developer / Google Play credentials):
+   ```bash
+   npm run build:production
+   # or separately:
+   npm run build:ios
+   npm run build:android
+   ```
+
+6. **Submit to the stores:**
+   ```bash
+   npm run submit:ios
+   npm run submit:android
+   ```
+
+### Build Profiles
+
+Three profiles are defined in `eas.json`:
+
+| Profile | Distribution | iOS | Android | Use for |
+|---|---|---|---|---|
+| `development` | Internal | Simulator | APK | Local development with dev client |
+| `preview` | Internal | Device | APK | QA / stakeholder testing |
+| `production` | Store | App Store | AAB | Public release |
+
+### Required Permissions
+
+The app requests the following permissions (already declared in `app.json`):
+
+- **Microphone** (`NSMicrophoneUsageDescription`) — for voice chat recording
+- **Speech Recognition** (`NSSpeechRecognitionUsageDescription`) — for on-device transcription fallback
+- **Android RECORD_AUDIO** — equivalent microphone permission on Android
+
+### Assets
+
+- `assets/icon.png` — App icon (1024×1024 PNG, replace with final design before submission)
+- `assets/adaptive-icon.png` — Android adaptive icon foreground (1024×1024 PNG)
+- `assets/favicon.png` — Web favicon (48×48 PNG)
