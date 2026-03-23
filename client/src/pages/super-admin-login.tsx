@@ -117,7 +117,7 @@ export default function SuperAdminLogin() {
               <Shield className="w-6 h-6 text-primary-foreground" />
             </div>
           </div>
-          <CardTitle data-testid="text-super-admin-title">EchoPath Super Admin</CardTitle>
+          <CardTitle data-testid="text-super-admin-title">HeyGrand Super Admin</CardTitle>
           <CardDescription>
             {step === "login" && "Sign in to manage all facility installations"}
             {step === "2fa" && "Enter your authenticator code"}

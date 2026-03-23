@@ -58,7 +58,7 @@ async function get(path) {
 }
 
 async function main() {
-  console.log("=== EchoPath Nexus Onboarding Script ===\n");
+  console.log("=== HeyGrand Onboarding Script ===\n");
 
   console.log("Step 1: Creating facility...");
   const entity = await post("/api/admin/entities", {

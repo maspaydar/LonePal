@@ -125,7 +125,7 @@ router.post("/auth/setup-2fa", superAdminAuthMiddleware, async (req, res) => {
     if (!admin) return res.status(404).json({ error: "Admin not found" });
 
     const secret = generateSecret();
-    const otpauthUrl = generateURI({ issuer: "EchoPath Nexus", label: admin.email, secret, type: "totp" });
+    const otpauthUrl = generateURI({ issuer: "HeyGrand", label: admin.email, secret, type: "totp" });
 
     await storage.updateSuperAdmin(admin.id, { totpSecret: secret, totpEnabled: false });
 

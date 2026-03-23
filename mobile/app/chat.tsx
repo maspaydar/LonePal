@@ -76,7 +76,7 @@ export default function ChatScreen() {
           },
         ]);
       } else {
-        const welcomeMsg = `Hello ${syncResult.resident.preferredName || 'there'}! I'm your EchoPath companion. Tap the microphone button and start talking to me!`;
+        const welcomeMsg = `Hello ${syncResult.resident.preferredName || 'there'}! I'm your HeyGrand companion. Tap the microphone button and start talking to me!`;
         setMessages([
           {
             id: 'welcome',
@@ -91,7 +91,7 @@ export default function ChatScreen() {
         {
           id: 'welcome',
           role: 'assistant',
-          content: `Hello! I'm your EchoPath companion. Tap the microphone and start talking!`,
+          content: `Hello! I'm your HeyGrand companion. Tap the microphone and start talking!`,
           timestamp: new Date(),
         },
       ]);

@@ -176,7 +176,7 @@ export async function registerRoutes(
     initLogStreamer(1);
   }
   await storage.seedRecoveryScripts();
-  streamInfo("system", "EchoPath Nexus server started");
+  streamInfo("system", "HeyGrand server started");
 
   app.post("/api/super-admin/receive-config", async (req, res) => {
     try {

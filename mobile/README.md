@@ -1,6 +1,6 @@
-# EchoPath Companion - Expo Mobile App
+# HeyGrand - Expo Mobile App
 
-A React Native mobile app for senior residents, built with Expo. Connects to the EchoPath Nexus backend running on Replit.
+A React Native mobile app for senior residents, built with Expo. Connects to the HeyGrand backend running on Replit.
 
 ## Features
 
@@ -58,7 +58,7 @@ A React Native mobile app for senior residents, built with Expo. Connects to the
 
 ### Login Credentials
 
-Use the anonymous username and facility ID from your EchoPath Nexus setup:
+Use the anonymous username and facility ID from your HeyGrand setup:
 
 - **Username:** `Resident_XXXX` (assigned during onboarding)
 - **PIN:** Any 4-digit number (first login creates your PIN)
@@ -92,7 +92,7 @@ mobile/
 
 ## API Endpoints Used
 
-All requests go to the EchoPath Nexus backend:
+All requests go to the HeyGrand backend:
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|

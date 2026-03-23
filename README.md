@@ -1,4 +1,4 @@
-# EchoPath Nexus
+# HeyGrand
 
 AI-powered safety monitoring system for senior living facilities. Integrates ADT motion sensors with Google Gemini AI for inactivity detection, personalized companion chat, and proactive check-ins.
 

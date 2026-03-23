@@ -412,7 +412,7 @@ export default function SuperAdminDashboard() {
               <Shield className="w-4 h-4 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-sm font-semibold" data-testid="text-dashboard-title">EchoPath Command Hub</h1>
+              <h1 className="text-sm font-semibold" data-testid="text-dashboard-title">HeyGrand Command Hub</h1>
               <p className="text-xs text-muted-foreground">{admin.fullName} ({admin.email})</p>
             </div>
           </div>
@@ -968,7 +968,7 @@ function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacil
                     <Input
                       value={newFacility.installationUrl}
                       onChange={(e) => setNewFacility({ ...newFacility, installationUrl: e.target.value })}
-                      placeholder="https://facility.echopath.app"
+                      placeholder="https://facility.heygrand.app"
                       data-testid="input-facility-url"
                     />
                   </div>

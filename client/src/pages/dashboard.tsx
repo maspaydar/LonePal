@@ -117,7 +117,7 @@ export default function Dashboard() {
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 gap-4">
         <Shield className="w-16 h-16 text-muted-foreground" />
-        <h2 className="text-xl font-semibold" data-testid="text-empty-state">Welcome to EchoPath Nexus</h2>
+        <h2 className="text-xl font-semibold" data-testid="text-empty-state">Welcome to HeyGrand</h2>
         <p className="text-muted-foreground text-center max-w-md">
           Load demo data to see the safety monitoring dashboard in action with sample residents, sensors, and scenario configurations.
         </p>

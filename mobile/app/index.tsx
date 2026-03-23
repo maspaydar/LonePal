@@ -84,7 +84,7 @@ export default function LoginScreen() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={styles.logo}>EchoPath</Text>
+          <Text style={styles.logo}>HeyGrand</Text>
           <Text style={styles.subtitle}>Your Personal Companion</Text>
         </View>
 
@@ -161,7 +161,7 @@ export default function LoginScreen() {
                 accessibilityLabel="Server URL"
               />
               <Text style={styles.settingsHint}>
-                Enter the URL where EchoPath Nexus is running
+                Enter the URL where HeyGrand is running
               </Text>
             </View>
           )}

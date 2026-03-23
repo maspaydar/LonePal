@@ -6,7 +6,7 @@ import { emergencyService } from "./emergency-service";
 import fs from "fs";
 import path from "path";
 
-const ADT_WEBHOOK_SECRET = process.env.ADT_WEBHOOK_SECRET || "echopath-adt-default-secret";
+const ADT_WEBHOOK_SECRET = process.env.ADT_WEBHOOK_SECRET || "heyGrand-adt-default-secret";
 
 interface AdtPayload {
   deviceId: string;

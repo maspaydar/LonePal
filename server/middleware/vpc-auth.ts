@@ -9,7 +9,7 @@ const ALLOWED_VPC_RANGES = [
 ];
 
 const INTERNAL_VPC_HEADER = "x-vpc-source";
-const EXPECTED_VPC_TOKEN = process.env.VPC_AUTH_TOKEN || "echopath-internal-vpc";
+const EXPECTED_VPC_TOKEN = process.env.VPC_AUTH_TOKEN || "heyGrand-internal-vpc";
 
 function ipToLong(ip: string): number {
   return ip.split(".").reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;

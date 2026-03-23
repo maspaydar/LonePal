@@ -17,7 +17,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="home" options={{ title: 'EchoPath Companion', headerBackVisible: false }} />
+        <Stack.Screen name="home" options={{ title: 'HeyGrand', headerBackVisible: false }} />
         <Stack.Screen name="chat" options={{ title: 'My Companion' }} />
         <Stack.Screen name="announcements" options={{ title: 'Community' }} />
       </Stack>

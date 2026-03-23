@@ -14,7 +14,7 @@ function getTimestamp(): string {
 }
 
 function getDailyLogPath(): string {
-  return path.join(getLogsPath(), `echopath-${getDateStamp()}.log`);
+  return path.join(getLogsPath(), `heyGrand-${getDateStamp()}.log`);
 }
 
 function writeLogEntry(level: LogLevel, source: string, message: string, meta?: Record<string, any>): void {
@@ -53,6 +53,6 @@ export const dailyLogger = {
   },
   init() {
     ensureDataRoot();
-    writeLogEntry("INFO", "system", "EchoPath daily logger initialized");
+    writeLogEntry("INFO", "system", "HeyGrand daily logger initialized");
   },
 };

@@ -1,7 +1,7 @@
-# EchoPath Nexus
+# HeyGrand
 
 ## Overview
-EchoPath Nexus is a multi-tenant, AI-powered safety monitoring system designed for senior living facilities. Its primary purpose is to enhance resident safety through proactive inactivity detection, personalized check-ins, and a comprehensive suite of administrative tools. The system integrates various hardware sensors (ADT motion sensors, ESP32 mmWave sensors) with Google Gemini AI for intelligent scenario-based monitoring. It offers a secure and isolated environment for each facility, with capabilities for remote management, health monitoring, and a voice-first mobile companion app for residents. The project aims to provide peace of mind for residents and caregivers by leveraging advanced AI and IoT technologies to create a responsive and intuitive safety net.
+HeyGrand is a multi-tenant, AI-powered safety monitoring system designed for senior living facilities. Its primary purpose is to enhance resident safety through proactive inactivity detection, personalized check-ins, and a comprehensive suite of administrative tools. The system integrates various hardware sensors (ADT motion sensors, ESP32 mmWave sensors) with Google Gemini AI for intelligent scenario-based monitoring. It offers a secure and isolated environment for each facility, with capabilities for remote management, health monitoring, and a voice-first mobile companion app for residents. The project aims to provide peace of mind for residents and caregivers by leveraging advanced AI and IoT technologies to create a responsive and intuitive safety net.
 
 ## User Preferences
 - API key-based Gemini integration (not managed AI Integrations)
@@ -19,7 +19,7 @@ The system employs a multi-tenant architecture with data isolation at both the d
   - **Level 1 (Super Admin):** `/super-admin/*` routes with TOTP 2FA, facility registry, remote health checks. Auth stored in `sa_token`/`sa_admin` localStorage keys.
   - **Level 2 (Company Admin):** `/login` auth gate with `CompanyAuthGuard`. JWT stored as `co_token`/`co_user` in localStorage. `useCompanyAuth` hook provides `getEntityId()`, `setSession()`, `logout()`. All entity-scoped API queries use dynamic entityId. Sidebar shows user name, role, and logout button. User Management page (`/user-management`) visible to admin role only.
   - **Level 3 (Mobile/Resident):** PIN-based login via mobile token endpoints.
-- **Super-Admin Command Hub:** A centralized dashboard for managing multiple EchoPath facility installations, including authentication with TOTP 2FA, facility registry, remote configuration push, health monitoring, and a remote diagnostic & maintenance tunnel.
+- **Super-Admin Command Hub:** A centralized dashboard for managing multiple HeyGrand facility installations, including authentication with TOTP 2FA, facility registry, remote configuration push, health monitoring, and a remote diagnostic & maintenance tunnel.
 - **Remote Diagnostic & Maintenance Tunnel:** Provides HMAC-signed access for remote log retrieval, service restarts, cache clearing, and system diagnostics for individual facilities.
 - **Tenant Isolation & Security:** `tenantResolver` middleware ensures data isolation. Mobile authentication uses JWTs with PIN-based login, DB-backed token revocation, and HMAC-SHA256 for Super-Admin remote commands.
 - **Data Storage:** PostgreSQL (Neon-backed via Drizzle ORM) for structured data, and file-based storage for tenant-specific profiles, conversations, and activity logs.

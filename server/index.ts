@@ -110,7 +110,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
-      dailyLogger.info("system", `EchoPath server started on port ${port}`);
+      dailyLogger.info("system", `HeyGrand server started on port ${port}`);
     },
   );
 })();

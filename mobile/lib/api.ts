@@ -1,9 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 
-const TOKEN_KEY = 'echopath_token';
-const RESIDENT_KEY = 'echopath_resident';
-const SERVER_URL_KEY = 'echopath_server_url';
+const TOKEN_KEY = 'heyGrand_token';
+const RESIDENT_KEY = 'heyGrand_resident';
+const SERVER_URL_KEY = 'heyGrand_server_url';
 
 const CONFIG_SERVER_URL: string =
   Constants.expoConfig?.extra?.serverUrl ?? 'http://localhost:5000';

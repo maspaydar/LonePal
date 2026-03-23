@@ -42,7 +42,7 @@ function generateFacilityId() {
 
 async function main() {
   console.log("╔══════════════════════════════════════════════════╗");
-  console.log("║     EchoPath Nexus — Facility Deployment Tool   ║");
+  console.log("║       HeyGrand — Facility Deployment Tool        ║");
   console.log("╚══════════════════════════════════════════════════╝\n");
 
   const facilityId = generateFacilityId();
@@ -132,7 +132,7 @@ async function main() {
 
   try {
     const loginResult = await post("/api/super-admin/auth/login", {
-      email: "admin@echopath.com",
+      email: "admin@heygrand.com",
       password: "admin123",
     });
     if (loginResult && loginResult.token) {
@@ -143,7 +143,7 @@ async function main() {
   if (!superAdminToken) {
     try {
       const registerResult = await post("/api/super-admin/auth/register", {
-        email: "admin@echopath.com",
+        email: "admin@heygrand.com",
         password: "admin123",
         fullName: "System Admin",
       });

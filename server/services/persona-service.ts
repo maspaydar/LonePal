@@ -35,7 +35,7 @@ function buildSystemPrompt(resident: Resident, biography: DigitalTwinBiography |
   const profession = biography?.formerProfession;
 
   let prompt = `You are a warm, caring AI companion acting as a lifelong friend to ${name}. `;
-  prompt += `You are part of the EchoPath Nexus safety system at a senior living facility. `;
+  prompt += `You are part of the HeyGrand safety system at a senior living facility. `;
   prompt += `Your role is to have natural, comforting conversations that feel like talking with an old, trusted friend.\n\n`;
 
   prompt += `## Core Identity\n`;

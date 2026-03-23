@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "EchoPath Companion",
-    "slug": "echopath-companion",
+    "name": "HeyGrand",
+    "slug": "heyGrand-companion",
     "owner": "YOUR_EXPO_ACCOUNT_SLUG",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "echopath",
+    "scheme": "heyGrand",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -16,11 +16,11 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.echopath.companion",
+      "bundleIdentifier": "com.heyGrand.companion",
       "buildNumber": "1",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "EchoPath uses the microphone so you can speak to your AI companion using your voice.",
-        "NSSpeechRecognitionUsageDescription": "EchoPath uses speech recognition to convert your voice to text for the AI companion."
+        "NSMicrophoneUsageDescription": "HeyGrand uses the microphone so you can speak to your AI companion using your voice.",
+        "NSSpeechRecognitionUsageDescription": "HeyGrand uses speech recognition to convert your voice to text for the AI companion."
       }
     },
     "android": {
@@ -28,7 +28,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a365d"
       },
-      "package": "com.echopath.companion",
+      "package": "com.heyGrand.companion",
       "versionCode": 1,
       "permissions": [
         "RECORD_AUDIO"

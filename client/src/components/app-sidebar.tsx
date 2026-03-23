@@ -63,7 +63,7 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
             <Shield className="w-4 h-4 text-primary-foreground" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold truncate" data-testid="text-app-title">EchoPath Nexus</h2>
+            <h2 className="text-sm font-semibold truncate" data-testid="text-app-title">HeyGrand</h2>
             <p className="text-xs text-muted-foreground truncate" data-testid="text-company-name">
               {entity ? entity.name : "Safety Monitoring"}
             </p>

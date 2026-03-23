@@ -7,7 +7,7 @@ const RESIDENT_ID = parseInt(process.argv[3]) || null;
 const MODE = process.argv[4] || "normal";
 
 const HELP = `
-=== EchoPath ADT Motion Simulator ===
+=== HeyGrand ADT Motion Simulator ===
 
 Usage:
   node scripts/simulateMotion.js [entityId] [residentId] [mode]
@@ -136,7 +136,7 @@ async function runStop(sensors) {
 }
 
 async function main() {
-  console.log("=== EchoPath ADT Motion Simulator ===\n");
+  console.log("=== HeyGrand ADT Motion Simulator ===\n");
   console.log(`Server:     ${BASE_URL}`);
   console.log(`Entity ID:  ${ENTITY_ID}`);
   console.log(`Resident:   ${RESIDENT_ID || "All shared sensors"}`);
