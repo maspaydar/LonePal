@@ -968,7 +968,7 @@ function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacil
                     <Input
                       value={newFacility.installationUrl}
                       onChange={(e) => setNewFacility({ ...newFacility, installationUrl: e.target.value })}
-                      placeholder="https://facility.heygrand.app"
+                      placeholder="https://facility.echopath.app"
                       data-testid="input-facility-url"
                     />
                   </div>

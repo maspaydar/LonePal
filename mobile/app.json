@@ -1,12 +1,12 @@
 {
   "expo": {
     "name": "HeyGrand",
-    "slug": "heyGrand-companion",
+    "slug": "heygrand-companion",
     "owner": "YOUR_EXPO_ACCOUNT_SLUG",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "heyGrand",
+    "scheme": "heygrand",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -16,7 +16,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.heyGrand.companion",
+      "bundleIdentifier": "com.heygrand.companion",
       "buildNumber": "1",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "HeyGrand uses the microphone so you can speak to your AI companion using your voice.",
@@ -28,7 +28,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a365d"
       },
-      "package": "com.heyGrand.companion",
+      "package": "com.heygrand.companion",
       "versionCode": 1,
       "permissions": [
         "RECORD_AUDIO"
