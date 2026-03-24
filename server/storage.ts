@@ -30,7 +30,7 @@ import {
   centralLogEntries, recoveryScripts, recoveryExecutionLogs,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, isNull, sql } from "drizzle-orm";
+import { eq, and, desc, isNull, sql, gte, inArray } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -173,6 +173,11 @@ export interface IStorage {
   createRecoveryExecutionLog(log: InsertRecoveryExecutionLog): Promise<RecoveryExecutionLog>;
   getRecoveryExecutionLogs(facilityId: number, limit?: number): Promise<RecoveryExecutionLog[]>;
   updateRecoveryExecutionLog(id: number, data: Partial<RecoveryExecutionLog>): Promise<RecoveryExecutionLog | undefined>;
+
+  getAlertsForReport(entityId: number, since: Date): Promise<Alert[]>;
+  getAllScenariosForReport(entityId: number, since: Date): Promise<ActiveScenario[]>;
+  getConversationsByEntity(entityId: number): Promise<Conversation[]>;
+  getMessageCountsByConversations(conversationIds: number[]): Promise<{ conversationId: number; count: number }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -888,6 +893,35 @@ export class DatabaseStorage implements IStorage {
   async updateRecoveryExecutionLog(id: number, data: Partial<RecoveryExecutionLog>): Promise<RecoveryExecutionLog | undefined> {
     const [updated] = await db.update(recoveryExecutionLogs).set(data).where(eq(recoveryExecutionLogs.id, id)).returning();
     return updated;
+  }
+
+  async getAlertsForReport(entityId: number, since: Date): Promise<Alert[]> {
+    return db.select().from(alerts)
+      .where(and(eq(alerts.entityId, entityId), gte(alerts.createdAt, since)))
+      .orderBy(desc(alerts.createdAt));
+  }
+
+  async getAllScenariosForReport(entityId: number, since: Date): Promise<ActiveScenario[]> {
+    return db.select().from(activeScenarios)
+      .where(and(eq(activeScenarios.entityId, entityId), gte(activeScenarios.createdAt, since)))
+      .orderBy(desc(activeScenarios.createdAt));
+  }
+
+  async getConversationsByEntity(entityId: number): Promise<Conversation[]> {
+    return db.select().from(conversations)
+      .where(eq(conversations.entityId, entityId))
+      .orderBy(desc(conversations.createdAt));
+  }
+
+  async getMessageCountsByConversations(conversationIds: number[]): Promise<{ conversationId: number; count: number }[]> {
+    if (conversationIds.length === 0) return [];
+    const rows = await db.select({
+      conversationId: messages.conversationId,
+      count: sql<number>`count(*)::int`,
+    }).from(messages)
+      .where(inArray(messages.conversationId, conversationIds))
+      .groupBy(messages.conversationId);
+    return rows.map(r => ({ conversationId: r.conversationId, count: r.count }));
   }
 }
 

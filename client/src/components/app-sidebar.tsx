@@ -12,6 +12,7 @@ import {
   UserCog,
   LogOut,
   CreditCard,
+  FileText,
 } from "lucide-react";
 import {
   Sidebar,
@@ -131,6 +132,16 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
                     <Link href="/user-management" data-testid="link-nav-user-management">
                       <UserCog className="w-4 h-4" />
                       <span>User Management</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild data-active={location === "/reports"}>
+                    <Link href="/reports" data-testid="link-nav-reports">
+                      <FileText className="w-4 h-4" />
+                      <span>Reports</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

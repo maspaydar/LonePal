@@ -33,6 +33,7 @@ import UserManagement from "@/pages/user-management";
 import RegisterPage from "@/pages/register";
 import VerifyEmailPage from "@/pages/verify-email";
 import BillingPage from "@/pages/billing";
+import ReportsPage from "@/pages/reports";
 
 interface SubscriptionStatus {
   status: string | null;
@@ -138,6 +139,11 @@ function AdminRouter() {
       <Route path="/user-management">
         <AdminOnlyGuard>
           <UserManagement />
+        </AdminOnlyGuard>
+      </Route>
+      <Route path="/reports">
+        <AdminOnlyGuard>
+          <ReportsPage />
         </AdminOnlyGuard>
       </Route>
       <Route component={NotFound} />

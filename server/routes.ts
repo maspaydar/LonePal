@@ -612,6 +612,146 @@ export async function registerRoutes(
     res.json({ read: true });
   });
 
+  // --- Reports (Admin Only) ---
+  app.get("/api/entities/:entityId/reports/summary", requireCompanyAdmin, async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const days = Math.max(1, Math.min(365, Number(req.query.days) || 30));
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const [entityResidents, entitySensors, entityAlerts, entityScenarios, entityConvs, entityBroadcasts] = await Promise.all([
+        storage.getResidents(entityId),
+        storage.getSensors(entityId),
+        storage.getAlertsForReport(entityId, since),
+        storage.getAllScenariosForReport(entityId, since),
+        storage.getConversationsByEntity(entityId),
+        storage.getCommunityBroadcasts(entityId, 10000),
+      ]);
+
+      const activeResidents = entityResidents.filter(r => r.isActive);
+
+      const alertsBySeverity = ["info", "warning", "critical", "emergency"].map(severity => ({
+        severity,
+        count: entityAlerts.filter(a => a.severity === severity).length,
+      }));
+
+      const alertTrendMap: Record<string, number> = {};
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+        const key = d.toISOString().split("T")[0];
+        alertTrendMap[key] = 0;
+      }
+      for (const alert of entityAlerts) {
+        const key = new Date(alert.createdAt).toISOString().split("T")[0];
+        if (key in alertTrendMap) alertTrendMap[key]++;
+      }
+      const alertTrend = Object.entries(alertTrendMap).map(([date, count]) => ({ date, count }));
+
+      const scenarioTypeCounts: Record<string, number> = {};
+      for (const sc of entityScenarios) {
+        scenarioTypeCounts[sc.scenarioType] = (scenarioTypeCounts[sc.scenarioType] || 0) + 1;
+      }
+      const scenarioTypes = Object.entries(scenarioTypeCounts).map(([type, count]) => ({ type, count }));
+
+      const residentStatuses = ["safe", "amber", "red"].map(status => ({
+        status,
+        count: activeResidents.filter(r => r.status === status).length,
+      }));
+
+      const entityConvIds = entityConvs.map(c => c.id);
+      const messageCounts = await storage.getMessageCountsByConversations(entityConvIds);
+      const totalMessages = messageCounts.reduce((sum, m) => sum + m.count, 0);
+
+      const openAlerts = (await storage.getUnreadAlerts(entityId)).length;
+      const currentScenarios = (await storage.getActiveScenarios(entityId)).length;
+
+      res.json({
+        period: { days, since: since.toISOString() },
+        overview: {
+          totalResidents: entityResidents.length,
+          activeResidents: activeResidents.length,
+          openAlerts,
+          activeScenarios: currentScenarios,
+          totalSensors: entitySensors.length,
+          activeSensors: entitySensors.filter(s => s.isActive).length,
+        },
+        alertsBySeverity,
+        alertTrend,
+        scenarioTypes,
+        residentStatuses,
+        engagement: {
+          totalConversations: entityConvs.length,
+          totalMessages,
+          totalBroadcasts: entityBroadcasts.length,
+        },
+      });
+    } catch (err: any) {
+      log(`Report summary error: ${err.message}`, "reports");
+      res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+
+  app.get("/api/entities/:entityId/reports/details", requireCompanyAdmin, async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      const days = Math.max(1, Math.min(365, Number(req.query.days) || 30));
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const entityResidents = await storage.getResidents(entityId);
+      const activeResidents = entityResidents.filter(r => r.isActive);
+
+      const allConvs = await storage.getConversationsByEntity(entityId);
+      const allConvIds = allConvs.map(c => c.id);
+      const msgCounts = await storage.getMessageCountsByConversations(allConvIds);
+      const msgCountMap = new Map(msgCounts.map(m => [m.conversationId, m.count]));
+
+      const convCountByResident: Record<number, number> = {};
+      const msgCountByResident: Record<number, number> = {};
+      for (const conv of allConvs) {
+        convCountByResident[conv.residentId] = (convCountByResident[conv.residentId] || 0) + 1;
+        msgCountByResident[conv.residentId] = (msgCountByResident[conv.residentId] || 0) + (msgCountMap.get(conv.id) || 0);
+      }
+
+      const residentDetails = activeResidents.map(r => ({
+        id: r.id,
+        name: `${r.firstName} ${r.lastName}`,
+        preferredName: r.preferredName,
+        roomNumber: r.roomNumber,
+        status: r.status,
+        lastActivityAt: r.lastActivityAt,
+        conversationCount: convCountByResident[r.id] || 0,
+        messageCount: msgCountByResident[r.id] || 0,
+      }));
+
+      const conversationsPerResident = activeResidents
+        .map(r => ({
+          residentId: r.id,
+          residentName: `${r.firstName} ${r.lastName}`,
+          count: convCountByResident[r.id] || 0,
+        }))
+        .filter(r => r.count > 0)
+        .sort((a, b) => b.count - a.count);
+
+      const recentAlerts = await storage.getAlertsForReport(entityId, since);
+      const alertsAcknowledged = recentAlerts.filter(a => a.isAcknowledged).length;
+      const alertsUnacknowledged = recentAlerts.filter(a => !a.isAcknowledged).length;
+
+      res.json({
+        period: { days, since: since.toISOString() },
+        residents: residentDetails,
+        conversationsPerResident,
+        alertSummary: {
+          total: recentAlerts.length,
+          acknowledged: alertsAcknowledged,
+          unacknowledged: alertsUnacknowledged,
+        },
+      });
+    } catch (err: any) {
+      log(`Report details error: ${err.message}`, "reports");
+      res.status(500).json({ error: "Failed to generate report details" });
+    }
+  });
+
   // --- Conversations & Messages ---
   app.get("/api/residents/:residentId/conversations", requireCompanyAuth, async (req, res) => {
     const resident = await storage.getResident(Number(req.params.residentId));
