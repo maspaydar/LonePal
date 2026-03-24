@@ -25,6 +25,7 @@ import companyRouter from "./routes/company/index";
 import mobileRouter from "./routes/mobile/index";
 import registrationRouter from "./routes/registration";
 import { WebhookHandlers } from "./webhookHandlers";
+import { getUncachableStripeClient } from "./stripeClient";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
 import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices } from "./services/esp32-speaker";
 import { initLogStreamer, streamInfo } from "./services/log-streamer";
@@ -104,10 +105,13 @@ export async function registerRoutes(
         const customerId = session.customer;
         const subscriptionId = session.subscription;
         if (facilityId && customerId && subscriptionId) {
+          const stripeClient = await getUncachableStripeClient();
+          const sub = await stripeClient.subscriptions.retrieve(subscriptionId as string);
           await storage.updateFacility(Number(facilityId), {
             stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId,
             subscriptionStatus: "active",
+            currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end * 1000) : undefined,
           });
           log(`Stripe checkout completed: facility=${facilityId} sub=${subscriptionId}`, "stripe");
         }
@@ -115,15 +119,19 @@ export async function registerRoutes(
         const sub = event.data.object;
         const facility = await storage.getFacilityByStripeCustomerId(sub.customer);
         if (facility) {
-          await storage.updateFacility(facility.id, { subscriptionStatus: "cancelled", stripeSubscriptionId: null as any });
-          log(`Stripe subscription cancelled: facility=${facility.id}`, "stripe");
+          await storage.updateFacility(facility.id, { subscriptionStatus: "paused", stripeSubscriptionId: null as any });
+          log(`Stripe subscription deleted/paused: facility=${facility.id}`, "stripe");
         }
       } else if (event.type === "customer.subscription.updated") {
         const sub = event.data.object;
         const facility = await storage.getFacilityByStripeCustomerId(sub.customer);
         if (facility) {
-          const status = sub.status === "active" ? "active" : sub.status === "past_due" ? "paused" : facility.subscriptionStatus;
-          await storage.updateFacility(facility.id, { subscriptionStatus: status as any });
+          const status = sub.status === "active" ? "active" : sub.status === "past_due" || sub.status === "canceled" ? "paused" : facility.subscriptionStatus;
+          const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : undefined;
+          await storage.updateFacility(facility.id, {
+            subscriptionStatus: status as any,
+            ...(periodEnd ? { currentPeriodEnd: periodEnd } : {}),
+          });
           log(`Stripe subscription updated: facility=${facility.id} status=${status}`, "stripe");
         }
       } else if (event.type === "invoice.payment_failed") {
@@ -137,7 +145,10 @@ export async function registerRoutes(
         const invoice = event.data.object;
         const facility = await storage.getFacilityByStripeCustomerId(invoice.customer);
         if (facility) {
-          await storage.updateFacility(facility.id, { subscriptionStatus: "active" });
+          await storage.updateFacility(facility.id, {
+            subscriptionStatus: "active",
+            lastPaymentAt: new Date(invoice.status_transitions?.paid_at ? invoice.status_transitions.paid_at * 1000 : Date.now()),
+          });
           log(`Stripe invoice paid: facility=${facility.id} amount=${invoice.amount_paid}`, "stripe");
         }
       }

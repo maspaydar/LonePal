@@ -79,6 +79,8 @@ interface Facility {
   trialEndsAt: string | null;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  lastPaymentAt: string | null;
+  currentPeriodEnd: string | null;
   installationUrl: string | null;
   status: string;
   geminiApiKey: string | null;
@@ -1327,8 +1329,20 @@ function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacil
                   )}
                   {facility.stripeSubscriptionId && (
                     <div className="col-span-2 truncate">
-                      <span className="text-muted-foreground">Stripe Subscription: </span>
+                      <span className="text-muted-foreground">Stripe Sub: </span>
                       <span className="font-medium font-mono text-[10px]" data-testid={`text-stripe-subscription-${facility.id}`}>{facility.stripeSubscriptionId}</span>
+                    </div>
+                  )}
+                  {facility.lastPaymentAt && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Last Payment: </span>
+                      <span className="font-medium" data-testid={`text-last-payment-${facility.id}`}>{new Date(facility.lastPaymentAt).toLocaleDateString()}</span>
+                    </div>
+                  )}
+                  {facility.currentPeriodEnd && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Renews: </span>
+                      <span className="font-medium" data-testid={`text-renewal-${facility.id}`}>{new Date(facility.currentPeriodEnd).toLocaleDateString()}</span>
                     </div>
                   )}
                 </div>
