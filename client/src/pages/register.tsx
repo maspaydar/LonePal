@@ -32,6 +32,8 @@ export default function RegisterPage() {
   const { toast } = useToast();
   const [submitted, setSubmitted] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState("");
+  const [devAutoVerified, setDevAutoVerified] = useState(false);
+  const [loginUsername, setLoginUsername] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -70,8 +72,12 @@ export default function RegisterPage() {
       }
       return body;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       setSubmittedEmail(variables.contactEmail);
+      if (data?.devAutoVerified && data?.loginUsername) {
+        setDevAutoVerified(true);
+        setLoginUsername(data.loginUsername);
+      }
       setSubmitted(true);
     },
     onError: (err: Error) => {
@@ -95,25 +101,49 @@ export default function RegisterPage() {
             <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
-            <div>
-              <h2 className="text-xl font-semibold mb-1" data-testid="text-check-email-title">Check your inbox</h2>
-              <p className="text-muted-foreground text-sm">
-                We sent a verification link to
-              </p>
-              <p className="font-medium mt-1" data-testid="text-submitted-email">{submittedEmail}</p>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Click the link in the email to verify your address and start your 30-day free trial. The link expires in 24 hours.
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setLocation("/login")}
-              data-testid="button-go-to-login"
-            >
-              <ArrowLeft className="w-4 h-4 mr-1" />
-              Back to login
-            </Button>
+            {devAutoVerified ? (
+              <>
+                <div>
+                  <h2 className="text-xl font-semibold mb-1">Account ready!</h2>
+                  <p className="text-muted-foreground text-sm">Your trial has been activated. Use these credentials to log in:</p>
+                </div>
+                <div className="w-full bg-muted rounded-lg p-4 text-left space-y-2">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Username</p>
+                    <p className="font-mono font-medium" data-testid="text-login-username">{loginUsername}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Password</p>
+                    <p className="text-sm text-muted-foreground">The password you just set</p>
+                  </div>
+                </div>
+                <Button className="w-full" onClick={() => setLocation("/login")} data-testid="button-go-to-login">
+                  Go to login
+                </Button>
+              </>
+            ) : (
+              <>
+                <div>
+                  <h2 className="text-xl font-semibold mb-1" data-testid="text-check-email-title">Check your inbox</h2>
+                  <p className="text-muted-foreground text-sm">
+                    We sent a verification link to
+                  </p>
+                  <p className="font-medium mt-1" data-testid="text-submitted-email">{submittedEmail}</p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Click the link in the email to verify your address and start your 30-day free trial. The link expires in 24 hours.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLocation("/login")}
+                  data-testid="button-go-to-login"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1" />
+                  Back to login
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

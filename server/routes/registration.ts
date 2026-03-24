@@ -20,7 +20,12 @@ router.post("/register", async (req, res) => {
 
     const existing = await storage.getFacilityByContactEmail(contactEmail);
     if (existing) {
-      return res.status(409).json({ error: "An account with this email already exists." });
+      if (existing.subscriptionStatus === "pending_verification") {
+        // Allow re-registration for unverified accounts — delete the stuck one and start fresh
+        await storage.deleteFacility(existing.id);
+      } else {
+        return res.status(409).json({ error: "An account with this email already exists." });
+      }
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -28,6 +33,62 @@ router.post("/register", async (req, res) => {
     const verificationTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const facilityId = facilityName.toLowerCase().replace(/[^a-z0-9]/g, "-").substring(0, 30) + "-" + crypto.randomBytes(4).toString("hex");
+
+    const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+
+    if (!smtpConfigured) {
+      // Dev mode: auto-verify and create the admin user immediately (no email required)
+      const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const baseUsername = contactEmail.toLowerCase().replace(/[^a-z0-9]/g, "_").substring(0, 28);
+      let adminUsername = baseUsername;
+      let suffix = 2;
+      while (await storage.getUserByUsername(adminUsername)) {
+        adminUsername = `${baseUsername}_${suffix++}`;
+      }
+
+      const entity = await storage.createEntity({
+        name: facilityName,
+        type: "facility",
+        contactEmail,
+        contactPhone: contactPhone || undefined,
+        isActive: true,
+      });
+      provisionEntityFolder(entity.id);
+
+      await storage.createUser({
+        username: adminUsername,
+        password: hashedPassword,
+        fullName: contactName || `${facilityName} Admin`,
+        role: "admin",
+        entityId: entity.id,
+      });
+
+      await storage.createFacility({
+        facilityId,
+        name: facilityName,
+        contactName,
+        contactEmail,
+        contactPhone: contactPhone || null,
+        password: null,
+        emailVerified: true,
+        verificationToken: null,
+        verificationTokenExpiresAt: null,
+        subscriptionStatus: "trial",
+        trialEndsAt,
+        status: "active",
+        linkedEntityId: entity.id,
+      });
+
+      log(`New facility registered (dev auto-verified): ${facilityName} (${contactEmail}) user=${adminUsername}`, "registration");
+
+      return res.status(201).json({
+        success: true,
+        devAutoVerified: true,
+        message: "Registration successful! (Dev mode: email verification skipped)",
+        loginUsername: adminUsername,
+        trialEndsAt: trialEndsAt.toISOString(),
+      });
+    }
 
     const facility = await storage.createFacility({
       facilityId,
