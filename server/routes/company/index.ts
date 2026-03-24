@@ -215,13 +215,21 @@ router.get("/subscription-status", requireCompanyAuthBasic, async (req, res) => 
     }
 
     const now = new Date();
+    let currentStatus = facility.subscriptionStatus;
     const trialEndsAt = facility.trialEndsAt ? new Date(facility.trialEndsAt) : null;
-    const daysRemaining = trialEndsAt
-      ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-      : null;
+
+    if (currentStatus === "trial" && trialEndsAt && trialEndsAt < now) {
+      await storage.updateFacility(facility.id, { subscriptionStatus: "paused" });
+      currentStatus = "paused";
+    }
+
+    const daysRemaining =
+      currentStatus === "trial" && trialEndsAt
+        ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+        : null;
 
     res.json({
-      status: facility.subscriptionStatus,
+      status: currentStatus,
       trialEndsAt: facility.trialEndsAt,
       daysRemaining,
     });

@@ -10,7 +10,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { useWebSocket } from "@/lib/websocket";
 import { useCallback, useState, type ReactNode } from "react";
 import { useCompanyAuth, getCompanyEntityId, getCompanyAuthHeaders } from "@/hooks/use-company-auth";
-import { AlertTriangle, X, Clock, PauseCircle } from "lucide-react";
+import { X, Clock, PauseCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import NotFound from "@/pages/not-found";
