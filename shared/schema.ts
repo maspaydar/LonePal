@@ -290,6 +290,13 @@ export const userPreferences = pgTable("user_preferences", {
   updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+/**
+ * @deprecated Device pairing codes are no longer used.
+ * The mobile login endpoint now returns unit assignment data directly.
+ * This table is retained for data integrity (existing rows) but no new
+ * codes are generated or consumed. Safe to drop in a future migration once
+ * the table has been confirmed empty in all environments.
+ */
 export const devicePairingCodes = pgTable("device_pairing_codes", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),

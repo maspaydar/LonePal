@@ -148,9 +148,13 @@ export interface IStorage {
   getUserPreferences(residentId: number): Promise<UserPreferences | undefined>;
   upsertUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences>;
 
+  /** @deprecated Pairing codes removed — mobile login returns unit data directly */
   createDevicePairingCode(code: InsertDevicePairingCode): Promise<DevicePairingCode>;
+  /** @deprecated Pairing codes removed — mobile login returns unit data directly */
   getDevicePairingCode(code: string): Promise<DevicePairingCode | undefined>;
+  /** @deprecated Pairing codes removed — mobile login returns unit data directly */
   getDevicePairingCodesForUnit(unitId: number): Promise<DevicePairingCode[]>;
+  /** @deprecated Pairing codes removed — mobile login returns unit data directly */
   markPairingCodeUsed(id: number, residentId: number): Promise<void>;
 
   createSpeakerEvent(event: InsertSpeakerEvent): Promise<SpeakerEvent>;
