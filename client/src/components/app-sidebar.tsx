@@ -61,13 +61,17 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary">
-            <Shield className="w-4 h-4 text-primary-foreground" />
+          <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary shrink-0">
+            <span className="text-xs font-bold text-primary-foreground leading-none">
+              {entity ? entity.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() : "HG"}
+            </span>
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold truncate" data-testid="text-app-title">HeyGrand</h2>
-            <p className="text-xs text-muted-foreground truncate" data-testid="text-company-name">
-              {entity ? entity.name : "Safety Monitoring"}
+            <h2 className="text-sm font-semibold truncate" data-testid="text-company-name">
+              {entity ? entity.name : "HeyGrand"}
+            </h2>
+            <p className="text-xs text-muted-foreground truncate" data-testid="text-app-title">
+              Powered by HeyGrand
             </p>
           </div>
         </div>
