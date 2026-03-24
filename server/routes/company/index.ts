@@ -8,6 +8,7 @@ import {
 import {
   signCompanyToken,
   requireCompanyAuth,
+  requireCompanyAuthBasic,
   requireCompanyAdmin,
 } from "../../middleware/company-auth";
 
@@ -205,7 +206,7 @@ router.patch("/users/:userId", requireCompanyAdmin, async (req, res) => {
   }
 });
 
-router.get("/subscription-status", requireCompanyAuth, async (req, res) => {
+router.get("/subscription-status", requireCompanyAuthBasic, async (req, res) => {
   try {
     const entityId = req.companyUser!.entityId;
     const facility = await storage.getFacilityByLinkedEntityId(entityId);
