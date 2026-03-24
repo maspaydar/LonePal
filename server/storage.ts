@@ -179,6 +179,7 @@ export interface IStorage {
   getConversationsByEntity(entityId: number, since?: Date): Promise<Conversation[]>;
   getMessageCountsByConversations(conversationIds: number[], since?: Date): Promise<{ conversationId: number; count: number }[]>;
   getCommunityBroadcastsSince(entityId: number, since: Date): Promise<CommunityBroadcast[]>;
+  fixOrphanedDemoResidents(entityId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -494,9 +495,21 @@ export class DatabaseStorage implements IStorage {
     const existingResidents = await this.getResidents(entityId);
     if (existingResidents.length > 0) return;
 
+    // Create units first — residents and sensors are assigned to them immediately
+    const unitDefs = [
+      { entityId, unitIdentifier: "Room-101", label: "Room 101", floor: "1", hardwareType: "adt_google" as const },
+      { entityId, unitIdentifier: "Room-205", label: "Room 205", floor: "2", hardwareType: "adt_google" as const },
+      { entityId, unitIdentifier: "Room-310", label: "Room 310", floor: "3", hardwareType: "adt_google" as const },
+    ];
+
+    const [unit101, unit205, unit310] = await Promise.all(
+      unitDefs.map(u => this.createUnit(u))
+    );
+
     const demoResidents = [
       {
         entityId,
+        unitId: unit101.id,
         firstName: "Margaret",
         lastName: "Chen",
         dateOfBirth: "1942-03-15",
@@ -511,6 +524,7 @@ export class DatabaseStorage implements IStorage {
       },
       {
         entityId,
+        unitId: unit205.id,
         firstName: "Robert",
         lastName: "Williams",
         dateOfBirth: "1938-07-22",
@@ -525,6 +539,7 @@ export class DatabaseStorage implements IStorage {
       },
       {
         entityId,
+        unitId: unit310.id,
         firstName: "Eleanor",
         lastName: "Patel",
         dateOfBirth: "1945-11-08",
@@ -539,19 +554,17 @@ export class DatabaseStorage implements IStorage {
       },
     ];
 
-    for (const r of demoResidents) {
-      await this.createResident(r as any);
-    }
+    const [resident101, resident205, resident310] = await Promise.all(
+      demoResidents.map(r => this.createResident(r as any))
+    );
 
     const demoSensors = [
-      { entityId, residentId: null, sensorType: "motion", location: "hallway_main", adtDeviceId: "ADT-HALL-001" },
-      { entityId, residentId: null, sensorType: "motion", location: "common_room", adtDeviceId: "ADT-COM-001" },
-      { entityId, residentId: null, sensorType: "motion", location: "dining_room", adtDeviceId: "ADT-DIN-001" },
+      { entityId, unitId: unit101.id, residentId: resident101.id, sensorType: "motion", location: "hallway_main", adtDeviceId: "ADT-HALL-001" },
+      { entityId, unitId: unit205.id, residentId: resident205.id, sensorType: "motion", location: "common_room", adtDeviceId: "ADT-COM-001" },
+      { entityId, unitId: unit310.id, residentId: resident310.id, sensorType: "motion", location: "dining_room", adtDeviceId: "ADT-DIN-001" },
     ];
 
-    for (const s of demoSensors) {
-      await this.createSensor(s as any);
-    }
+    await Promise.all(demoSensors.map(s => this.createSensor(s as any)));
 
     const defaultScenarios: InsertScenarioConfig[] = [
       { entityId, scenarioType: "inactivity_gentle", label: "Gentle Check-in (Scenario A)", triggerMinutes: 10, escalationMinutes: 5, maxEscalations: 1, isActive: true },
@@ -561,9 +574,71 @@ export class DatabaseStorage implements IStorage {
       { entityId, scenarioType: "shower_extended", label: "Extended Shower Time", triggerMinutes: 30, escalationMinutes: 5, maxEscalations: 2, locations: ["shower", "bathroom"], isActive: true },
     ];
 
-    for (const sc of defaultScenarios) {
-      await this.createScenarioConfig(sc);
+    await Promise.all(defaultScenarios.map(sc => this.createScenarioConfig(sc)));
+  }
+
+  async fixOrphanedDemoResidents(entityId: number): Promise<void> {
+    const existingUnits = await this.getUnits(entityId);
+    const existingResidents = await this.getResidents(entityId);
+    if (existingResidents.length === 0 || existingUnits.length > 0) return;
+
+    // Residents exist but no units — create units and link everything
+    const roomToUnit: Record<string, Unit> = {};
+
+    const uniqueRooms = [...new Set(
+      existingResidents
+        .filter(r => r.isActive && r.roomNumber)
+        .map(r => r.roomNumber!)
+    )].sort();
+
+    const floorOf = (room: string) => room.length >= 3 ? room[0] : "1";
+
+    for (const room of uniqueRooms) {
+      const unit = await this.createUnit({
+        entityId,
+        unitIdentifier: `Room-${room}`,
+        label: `Room ${room}`,
+        floor: floorOf(room),
+        hardwareType: "adt_google",
+      });
+      roomToUnit[room] = unit;
     }
+
+    // Update residents
+    await Promise.all(
+      existingResidents
+        .filter(r => r.roomNumber && roomToUnit[r.roomNumber])
+        .map(r => this.updateResident(r.id, { unitId: roomToUnit[r.roomNumber!].id } as any))
+    );
+
+    // Update sensors
+    const existingSensors = await this.getSensors(entityId);
+    const sensorDeviceToRoom: Record<string, string> = {
+      "ADT-HALL-001": uniqueRooms[0] ?? "",
+      "ADT-COM-001": uniqueRooms[1] ?? uniqueRooms[0] ?? "",
+      "ADT-DIN-001": uniqueRooms[2] ?? uniqueRooms[0] ?? "",
+    };
+
+    const residentByRoom = Object.fromEntries(
+      existingResidents
+        .filter(r => r.roomNumber && roomToUnit[r.roomNumber])
+        .map(r => [r.roomNumber!, r])
+    );
+
+    await Promise.all(
+      existingSensors
+        .filter(s => !s.unitId && s.adtDeviceId && sensorDeviceToRoom[s.adtDeviceId])
+        .map(s => {
+          const room = sensorDeviceToRoom[s.adtDeviceId!];
+          const unit = roomToUnit[room];
+          const resident = residentByRoom[room];
+          if (!unit) return Promise.resolve();
+          return this.updateSensor(s.id, {
+            unitId: unit.id,
+            residentId: resident?.id ?? null,
+          } as any);
+        })
+    );
   }
 
   async getCommunityBroadcasts(entityId: number, limit: number = 20): Promise<CommunityBroadcast[]> {

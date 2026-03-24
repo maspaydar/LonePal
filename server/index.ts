@@ -9,6 +9,7 @@ import { tenantResolver } from "./middleware/tenant-resolver";
 import { startTrialScheduler } from "./services/trial-scheduler";
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./stripeClient";
+import { storage } from "./storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -108,6 +109,13 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+
+  // One-time idempotent fix: assign existing orphaned residents/sensors (entity 12) to units
+  try {
+    await storage.fixOrphanedDemoResidents(12);
+  } catch (e) {
+    dailyLogger.error("startup", `fixOrphanedDemoResidents failed: ${e}`);
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
