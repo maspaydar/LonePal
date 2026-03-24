@@ -205,4 +205,28 @@ router.patch("/users/:userId", requireCompanyAdmin, async (req, res) => {
   }
 });
 
+router.get("/subscription-status", requireCompanyAuth, async (req, res) => {
+  try {
+    const entityId = req.companyUser!.entityId;
+    const facility = await storage.getFacilityByLinkedEntityId(entityId);
+    if (!facility) {
+      return res.json({ status: null });
+    }
+
+    const now = new Date();
+    const trialEndsAt = facility.trialEndsAt ? new Date(facility.trialEndsAt) : null;
+    const daysRemaining = trialEndsAt
+      ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+      : null;
+
+    res.json({
+      status: facility.subscriptionStatus,
+      trialEndsAt: facility.trialEndsAt,
+      daysRemaining,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch subscription status" });
+  }
+});
+
 export default router;
