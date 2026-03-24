@@ -77,6 +77,8 @@ interface Facility {
   emailVerified: boolean;
   subscriptionStatus: string;
   trialEndsAt: string | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
   installationUrl: string | null;
   status: string;
   geminiApiKey: string | null;
@@ -1311,6 +1313,22 @@ function RegistryPanel({ dashData, facilities, healthCheckMutation, showAddFacil
                     <div className="col-span-2 truncate">
                       <span className="text-muted-foreground">URL: </span>
                       <span className="font-medium">{facility.installationUrl}</span>
+                    </div>
+                  )}
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">Subscription: </span>
+                    <span className="font-medium capitalize" data-testid={`text-subscription-${facility.id}`}>{facility.subscriptionStatus}</span>
+                  </div>
+                  {facility.stripeCustomerId && (
+                    <div className="col-span-2 truncate">
+                      <span className="text-muted-foreground">Stripe Customer: </span>
+                      <span className="font-medium font-mono text-[10px]" data-testid={`text-stripe-customer-${facility.id}`}>{facility.stripeCustomerId}</span>
+                    </div>
+                  )}
+                  {facility.stripeSubscriptionId && (
+                    <div className="col-span-2 truncate">
+                      <span className="text-muted-foreground">Stripe Subscription: </span>
+                      <span className="font-medium font-mono text-[10px]" data-testid={`text-stripe-subscription-${facility.id}`}>{facility.stripeSubscriptionId}</span>
                     </div>
                   )}
                 </div>

@@ -35,7 +35,7 @@ async function initStripe() {
     const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
     if (domain) {
       const webhookBaseUrl = `https://${domain}`;
-      await stripeSync.findOrCreateManagedWebhook(`${webhookBaseUrl}/api/stripe/webhook`);
+      await stripeSync.findOrCreateManagedWebhook(`${webhookBaseUrl}/api/webhooks/stripe`);
     }
     stripeSync.syncBackfill().catch((err: any) => {
       console.error("Stripe syncBackfill error:", err?.message);

@@ -83,12 +83,12 @@ export async function registerRoutes(
   app.use("/api/mobile", mobileRouter);
   app.use("/api", registrationRouter);
 
-  app.post("/api/stripe/webhook", async (req, res) => {
+  async function handleStripeWebhook(req: any, res: any) {
     const signature = req.headers["stripe-signature"];
     if (!signature) return res.status(400).json({ error: "Missing stripe-signature" });
 
     const sig = Array.isArray(signature) ? signature[0] : signature;
-    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const rawBody = req.rawBody as Buffer | undefined;
 
     if (!rawBody || !Buffer.isBuffer(rawBody)) {
       return res.status(400).json({ error: "Raw body not available" });
@@ -133,6 +133,13 @@ export async function registerRoutes(
           await storage.updateFacility(facility.id, { subscriptionStatus: "paused" });
           log(`Stripe payment failed: facility=${facility.id}`, "stripe");
         }
+      } else if (event.type === "invoice.paid") {
+        const invoice = event.data.object;
+        const facility = await storage.getFacilityByStripeCustomerId(invoice.customer);
+        if (facility) {
+          await storage.updateFacility(facility.id, { subscriptionStatus: "active" });
+          log(`Stripe invoice paid: facility=${facility.id} amount=${invoice.amount_paid}`, "stripe");
+        }
       }
 
       res.status(200).json({ received: true });
@@ -140,7 +147,10 @@ export async function registerRoutes(
       log(`Stripe webhook error: ${error.message}`, "stripe");
       res.status(400).json({ error: "Webhook processing failed" });
     }
-  });
+  }
+
+  app.post("/api/webhooks/stripe", handleStripeWebhook);
+  app.post("/api/stripe/webhook", handleStripeWebhook);
 
   app.get("/api/health", async (_req, res) => {
     try {
