@@ -196,63 +196,67 @@ export default function ReportsPage() {
       const jsPDF = (await import("jspdf")).default;
 
       const canvas = await html2canvas(reportRef.current, {
-        scale: 1.5,
+        scale: 2,
         useCORS: true,
         logging: false,
         backgroundColor: "#ffffff",
       });
 
-      const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 10;
+      const headerHeight = 18;
       const contentWidth = pageWidth - 2 * margin;
 
-      pdf.setFillColor(79, 70, 229);
-      pdf.rect(0, 0, pageWidth, 18, "F");
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(11);
-      pdf.setFont("helvetica", "bold");
-      pdf.text(`${entity?.name ?? "Facility"} — Management Report`, margin, 11.5);
-      pdf.setFontSize(8);
-      pdf.setFont("helvetica", "normal");
-      pdf.text(`Generated ${new Date().toLocaleDateString("en-US", { dateStyle: "full" })} · Last ${days} days`, pageWidth - margin, 11.5, { align: "right" });
+      function addHeader(isFirstPage: boolean) {
+        pdf.setFillColor(79, 70, 229);
+        pdf.rect(0, 0, pageWidth, headerHeight, "F");
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(11);
+        pdf.setFont("helvetica", "bold");
+        pdf.text(`${entity?.name ?? "Facility"} — Management Report`, margin, 11.5);
+        pdf.setFontSize(8);
+        pdf.setFont("helvetica", "normal");
+        const label = isFirstPage
+          ? `Generated ${new Date().toLocaleDateString("en-US", { dateStyle: "full" })} · Last ${days} days`
+          : `${entity?.name ?? "Facility"} · Last ${days} days`;
+        pdf.text(label, pageWidth - margin, 11.5, { align: "right" });
+        pdf.setTextColor(0, 0, 0);
+      }
 
-      const imgProps = pdf.getImageProperties(imgData);
-      const imgRatio = imgProps.height / imgProps.width;
-      const imgPdfWidth = contentWidth;
-      const imgPdfHeight = imgPdfWidth * imgRatio;
+      // Calculate how much of the canvas fits per page in pixels
+      const availablePageHeight = pageHeight - headerHeight - margin;
+      // Scale factor: how many canvas pixels fit in one mm
+      const canvasPxPerMm = canvas.width / contentWidth;
+      const pageSlicePx = availablePageHeight * canvasPxPerMm;
 
-      let yPos = 22;
-      let remainingHeight = imgPdfHeight;
-      let sourceY = 0;
+      let offsetPx = 0;
+      let isFirstPage = true;
 
-      while (remainingHeight > 0) {
-        const availableHeight = pageHeight - yPos - margin;
-        const sliceHeight = Math.min(remainingHeight, availableHeight);
-        const sourceSliceHeight = (sliceHeight / imgPdfHeight) * imgProps.height;
+      while (offsetPx < canvas.height) {
+        if (!isFirstPage) pdf.addPage();
 
-        pdf.addImage(
-          imgData,
-          "PNG",
-          margin,
-          yPos,
-          imgPdfWidth,
-          sliceHeight,
-          undefined,
-          "FAST",
-          0,
-        );
+        addHeader(isFirstPage);
+        isFirstPage = false;
 
-        remainingHeight -= sliceHeight;
-        sourceY += sourceSliceHeight;
+        const sliceHeight = Math.min(pageSlicePx, canvas.height - offsetPx);
 
-        if (remainingHeight > 0) {
-          pdf.addPage();
-          yPos = margin;
-        }
+        // Create a temporary canvas for this slice
+        const sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sliceHeight;
+        const ctx = sliceCanvas.getContext("2d");
+        if (!ctx) break;
+        ctx.drawImage(canvas, 0, -offsetPx);
+
+        const sliceData = sliceCanvas.toDataURL("image/jpeg", 0.92);
+        const slicePdfHeight = sliceHeight / canvasPxPerMm;
+
+        pdf.addImage(sliceData, "JPEG", margin, headerHeight, contentWidth, slicePdfHeight);
+
+        offsetPx += sliceHeight;
       }
 
       const facilitySlug = (entity?.name ?? "facility").toLowerCase().replace(/\s+/g, "-");

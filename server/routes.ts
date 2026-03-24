@@ -624,8 +624,8 @@ export async function registerRoutes(
         storage.getSensors(entityId),
         storage.getAlertsForReport(entityId, since),
         storage.getAllScenariosForReport(entityId, since),
-        storage.getConversationsByEntity(entityId),
-        storage.getCommunityBroadcasts(entityId, 10000),
+        storage.getConversationsByEntity(entityId, since),
+        storage.getCommunityBroadcastsSince(entityId, since),
       ]);
 
       const activeResidents = entityResidents.filter(r => r.isActive);
@@ -700,9 +700,9 @@ export async function registerRoutes(
       const entityResidents = await storage.getResidents(entityId);
       const activeResidents = entityResidents.filter(r => r.isActive);
 
-      const allConvs = await storage.getConversationsByEntity(entityId);
+      const allConvs = await storage.getConversationsByEntity(entityId, since);
       const allConvIds = allConvs.map(c => c.id);
-      const msgCounts = await storage.getMessageCountsByConversations(allConvIds);
+      const msgCounts = await storage.getMessageCountsByConversations(allConvIds, since);
       const msgCountMap = new Map(msgCounts.map(m => [m.conversationId, m.count]));
 
       const convCountByResident: Record<number, number> = {};

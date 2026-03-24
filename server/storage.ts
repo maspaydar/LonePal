@@ -176,8 +176,9 @@ export interface IStorage {
 
   getAlertsForReport(entityId: number, since: Date): Promise<Alert[]>;
   getAllScenariosForReport(entityId: number, since: Date): Promise<ActiveScenario[]>;
-  getConversationsByEntity(entityId: number): Promise<Conversation[]>;
-  getMessageCountsByConversations(conversationIds: number[]): Promise<{ conversationId: number; count: number }[]>;
+  getConversationsByEntity(entityId: number, since?: Date): Promise<Conversation[]>;
+  getMessageCountsByConversations(conversationIds: number[], since?: Date): Promise<{ conversationId: number; count: number }[]>;
+  getCommunityBroadcastsSince(entityId: number, since: Date): Promise<CommunityBroadcast[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -907,21 +908,33 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(activeScenarios.createdAt));
   }
 
-  async getConversationsByEntity(entityId: number): Promise<Conversation[]> {
+  async getConversationsByEntity(entityId: number, since?: Date): Promise<Conversation[]> {
+    const conditions = since
+      ? and(eq(conversations.entityId, entityId), gte(conversations.createdAt, since))
+      : eq(conversations.entityId, entityId);
     return db.select().from(conversations)
-      .where(eq(conversations.entityId, entityId))
+      .where(conditions)
       .orderBy(desc(conversations.createdAt));
   }
 
-  async getMessageCountsByConversations(conversationIds: number[]): Promise<{ conversationId: number; count: number }[]> {
+  async getMessageCountsByConversations(conversationIds: number[], since?: Date): Promise<{ conversationId: number; count: number }[]> {
     if (conversationIds.length === 0) return [];
+    const conditions = since
+      ? and(inArray(messages.conversationId, conversationIds), gte(messages.createdAt, since))
+      : inArray(messages.conversationId, conversationIds);
     const rows = await db.select({
       conversationId: messages.conversationId,
       count: sql<number>`count(*)::int`,
     }).from(messages)
-      .where(inArray(messages.conversationId, conversationIds))
+      .where(conditions)
       .groupBy(messages.conversationId);
     return rows.map(r => ({ conversationId: r.conversationId, count: r.count }));
+  }
+
+  async getCommunityBroadcastsSince(entityId: number, since: Date): Promise<CommunityBroadcast[]> {
+    return db.select().from(communityBroadcasts)
+      .where(and(eq(communityBroadcasts.entityId, entityId), gte(communityBroadcasts.createdAt, since)))
+      .orderBy(desc(communityBroadcasts.createdAt));
   }
 }
 
