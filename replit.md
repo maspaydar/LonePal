@@ -67,6 +67,9 @@ The system employs a multi-tenant architecture with data isolation at both the d
 - Without SMTP config, emails are logged to console (dev mode)
 - Sends: verification email, welcome+credentials email (on verification), super admin notification
 
+### Database Migration Strategy
+This project uses `drizzle-kit push` (not migration files) for schema changes. All schema changes are automatically synchronized to the database by running `npm run db:push`. The facilities table schema with `subscriptionStatus` enum and all new fields has been verified in sync (`No changes detected`).
+
 ### Storage Methods Added
 - `getFacilityByContactEmail(email)` — uniqueness check on registration
 - `getFacilityByVerificationToken(token)` — email verification lookup
