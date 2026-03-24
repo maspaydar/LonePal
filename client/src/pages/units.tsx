@@ -32,8 +32,6 @@ import {
   Unlink,
   Layers,
   Volume2,
-  QrCode,
-  Copy,
   Clock,
   Mic,
   Cpu,
@@ -93,14 +91,6 @@ interface SpeakerEvent {
   createdAt: string;
 }
 
-interface PairingCode {
-  id: number;
-  code: string;
-  unitId: number;
-  isUsed: boolean;
-  expiresAt: string;
-}
-
 export default function Units() {
   const { getEntityId } = useCompanyAuth();
   const eid = getEntityId();
@@ -115,7 +105,6 @@ export default function Units() {
   const [assignResidentUnit, setAssignResidentUnit] = useState<number | null>(null);
   const [assignSensorUnit, setAssignSensorUnit] = useState<number | null>(null);
   const [speakerEventsUnit, setSpeakerEventsUnit] = useState<number | null>(null);
-  const [pairingUnit, setPairingUnit] = useState<number | null>(null);
 
   const { data: units, isLoading } = useQuery<UnitData[]>({
     queryKey: [`/api/entities/${eid}/units`],
@@ -136,12 +125,6 @@ export default function Units() {
     queryKey: [`/api/entities/${eid}/units`, speakerEventsUnit, "speaker/events"],
     queryFn: () => apiRequest("GET", `/api/entities/${eid}/units/${speakerEventsUnit}/speaker/events?limit=10`).then(r => r.json()),
     enabled: !!speakerEventsUnit,
-  });
-
-  const { data: pairingCodes } = useQuery<PairingCode[]>({
-    queryKey: [`/api/entities/${eid}/units`, pairingUnit, "pairing-codes"],
-    queryFn: () => apiRequest("GET", `/api/entities/${eid}/units/${pairingUnit}/pairing-codes`).then(r => r.json()),
-    enabled: !!pairingUnit,
   });
 
   const createMutation = useMutation({
@@ -227,22 +210,8 @@ export default function Units() {
     },
   });
 
-  const generatePairingMutation = useMutation({
-    mutationFn: (unitId: number) =>
-      apiRequest("POST", `/api/entities/${eid}/units/${unitId}/pairing-code`),
-    onSuccess: (_, unitId) => {
-      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/units`, unitId, "pairing-codes"] });
-      toast({ title: "Pairing code generated" });
-    },
-  });
-
   const unassignedResidents = allResidents?.filter((r) => !r.unitId) || [];
   const unassignedSensors = allSensors?.filter((s) => !s.unitId) || [];
-
-  function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text);
-    toast({ title: "Copied to clipboard" });
-  }
 
   if (isLoading) {
     return (
@@ -638,59 +607,6 @@ export default function Units() {
                   </div>
                 )}
 
-                <div className="space-y-2 pt-1 border-t">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <QrCode className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span className="text-sm font-medium">Device Pairing</span>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setPairingUnit(pairingUnit === unit.id ? null : unit.id);
-                        if (pairingUnit !== unit.id) {
-                          generatePairingMutation.mutate(unit.id);
-                        }
-                      }}
-                      data-testid={`button-pairing-${unit.id}`}
-                    >
-                      <QrCode className="w-3.5 h-3.5 mr-1" />
-                      {pairingUnit === unit.id ? "Hide" : "Generate Code"}
-                    </Button>
-                  </div>
-
-                  {pairingUnit === unit.id && pairingCodes && (
-                    <div className="pl-5 space-y-2" data-testid={`pairing-codes-${unit.id}`}>
-                      {pairingCodes.filter(c => !c.isUsed && new Date(c.expiresAt) > new Date()).slice(0, 3).map((code) => (
-                        <div key={code.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm font-semibold tracking-wider" data-testid={`text-pairing-code-${code.id}`}>
-                              {code.code}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                              <Clock className="w-2.5 h-2.5" />
-                              {Math.max(0, Math.round((new Date(code.expiresAt).getTime() - Date.now()) / 60000))}m
-                            </span>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => copyToClipboard(code.code)}
-                              data-testid={`button-copy-code-${code.id}`}
-                            >
-                              <Copy className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                      {pairingCodes.filter(c => !c.isUsed && new Date(c.expiresAt) > new Date()).length === 0 && (
-                        <p className="text-xs text-muted-foreground">No active pairing codes</p>
-                      )}
-                    </div>
-                  )}
-                </div>
               </CardContent>
             </Card>
           ))}

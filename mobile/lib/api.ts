@@ -38,11 +38,21 @@ export interface ResidentInfo {
   preferredName: string;
   entityId: number;
   status: string;
+  unitId: number | null;
+}
+
+export interface UnitInfo {
+  id: number;
+  unitIdentifier: string;
+  label: string | null;
+  floor: string | null;
 }
 
 export interface LoginResponse {
   token: string;
   expiresAt: string;
+  isUnitAssigned: boolean;
+  unit: UnitInfo | null;
   resident: ResidentInfo;
 }
 

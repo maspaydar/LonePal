@@ -32,6 +32,10 @@ router.post("/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
+    if (!user.role || !["admin", "manager", "staff"].includes(user.role)) {
+      return res.status(403).json({ error: "This portal is for facility staff only. Residents must use the mobile app." });
+    }
+
     if (user.isActive === false) {
       return res.status(401).json({ error: "Account has been deactivated" });
     }

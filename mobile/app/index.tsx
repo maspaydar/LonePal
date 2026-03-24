@@ -18,7 +18,7 @@ import { setBaseUrl, getBaseUrl, initBaseUrl } from '../lib/api';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { isLoading, isAuthenticated, login } = useAuth();
+  const { isLoading, isAuthenticated, login, resident } = useAuth();
 
   const [username, setUsername] = useState('');
   const [pin, setPin] = useState('');
@@ -38,7 +38,11 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace('/home');
+      if (resident?.unitId) {
+        router.replace('/home');
+      } else {
+        router.replace('/waiting');
+      }
     }
   }, [isLoading, isAuthenticated]);
 
@@ -59,8 +63,12 @@ export default function LoginScreen() {
     setSubmitting(true);
     try {
       await setBaseUrl(serverUrl);
-      await login(username.trim(), pin.trim(), parseInt(entityId));
-      router.replace('/home');
+      const result = await login(username.trim(), pin.trim(), parseInt(entityId));
+      if (result.isUnitAssigned) {
+        router.replace('/home');
+      } else {
+        router.replace('/waiting');
+      }
     } catch (err: any) {
       Alert.alert('Login Failed', err.message || 'Please check your details and try again.');
     } finally {

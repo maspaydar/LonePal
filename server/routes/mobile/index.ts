@@ -268,18 +268,34 @@ router.post("/login", async (req, res) => {
 
     await storage.updateMobileTokenValue(dbToken.id, jwtToken);
 
+    let unitData: { id: number; unitIdentifier: string; label: string | null; floor: string | null } | null = null;
+    if (resident.unitId) {
+      const unit = await storage.getUnit(resident.unitId);
+      if (unit && unit.entityId === entityId) {
+        unitData = {
+          id: unit.id,
+          unitIdentifier: unit.unitIdentifier,
+          label: unit.label,
+          floor: unit.floor,
+        };
+      }
+    }
+
     log(`Mobile login: ${resident.anonymousUsername} (entity ${entityId})`, "mobile");
-    dailyLogger.info("mobile", `Resident ${resident.anonymousUsername} logged in via mobile`, { entityId });
+    dailyLogger.info("mobile", `Resident ${resident.anonymousUsername} logged in via mobile`, { entityId, unitAssigned: !!unitData });
 
     res.json({
       token: jwtToken,
       expiresAt: expiresAt.toISOString(),
+      isUnitAssigned: !!unitData,
+      unit: unitData,
       resident: {
         id: resident.id,
         anonymousUsername: resident.anonymousUsername,
         preferredName: resident.preferredName || resident.firstName,
         entityId: resident.entityId,
         status: resident.status,
+        unitId: resident.unitId || null,
       },
     });
   } catch (error: any) {
@@ -536,40 +552,6 @@ router.post("/preferences", mobileAuthMiddleware, async (req, res) => {
   } catch (error: any) {
     if (error.name === "ZodError") return res.status(400).json({ error: error.errors });
     res.status(500).json({ error: "Failed to save preferences" });
-  }
-});
-
-/**
- * POST /api/mobile/pair
- * Auth: mobileAuthMiddleware (resident JWT required)
- * Tenant scope: pairing code's entityId must match JWT entityId — prevents cross-tenant pairing.
- */
-router.post("/pair", mobileAuthMiddleware, async (req, res) => {
-  try {
-    const { residentId, entityId } = req.mobileUser!;
-    const { code } = req.body;
-    if (!code) return res.status(400).json({ error: "Pairing code is required" });
-
-    const pairingCode = await storage.getDevicePairingCode(code.toUpperCase());
-    if (!pairingCode) return res.status(404).json({ error: "Invalid pairing code" });
-    if (pairingCode.isUsed) return res.status(400).json({ error: "Pairing code already used" });
-    if (new Date(pairingCode.expiresAt) < new Date()) return res.status(400).json({ error: "Pairing code expired" });
-    if (pairingCode.entityId !== entityId) return res.status(403).json({ error: "Pairing code belongs to a different facility" });
-
-    await storage.markPairingCodeUsed(pairingCode.id, residentId);
-    await storage.updateResident(residentId, { unitId: pairingCode.unitId });
-
-    const unit = await storage.getUnit(pairingCode.unitId);
-    dailyLogger.info("pairing", `Resident ${residentId} paired to unit ${unit?.unitIdentifier}`, { residentId, entityId, unitId: pairingCode.unitId });
-
-    res.json({
-      paired: true,
-      unitId: pairingCode.unitId,
-      unitIdentifier: unit?.unitIdentifier,
-      smartSpeakerId: unit?.smartSpeakerId,
-    });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to pair device" });
   }
 });
 

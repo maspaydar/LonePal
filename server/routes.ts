@@ -1268,47 +1268,6 @@ export async function registerRoutes(
     res.json(health);
   });
 
-  // --- Device Pairing ---
-  app.post("/api/entities/:entityId/units/:unitId/pairing-code", requireCompanyAuth, async (req, res) => {
-    try {
-      const entityId = Number(req.params.entityId);
-      const unitId = Number(req.params.unitId);
-
-      const unit = await storage.getUnit(unitId);
-      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
-
-      const code = crypto.randomBytes(4).toString("hex").toUpperCase();
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-
-      const pairingCode = await storage.createDevicePairingCode({
-        code,
-        unitId,
-        entityId,
-        isUsed: false,
-        usedByResidentId: null,
-        expiresAt,
-      });
-
-      dailyLogger.info("pairing", `Generated pairing code for unit ${unit.unitIdentifier}`, { entityId, unitId, code });
-      res.status(201).json(pairingCode);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to generate pairing code" });
-    }
-  });
-
-  app.get("/api/entities/:entityId/units/:unitId/pairing-codes", requireCompanyAuth, async (req, res) => {
-    try {
-      const entityId = Number(req.params.entityId);
-      const unitId = Number(req.params.unitId);
-      const unit = await storage.getUnit(unitId);
-      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
-      const codes = await storage.getDevicePairingCodesForUnit(unitId);
-      res.json(codes);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch pairing codes" });
-    }
-  });
-
   // --- Tenant Isolation Verification ---
   app.get("/api/test/isolation/:entityId", async (req, res) => {
     try {

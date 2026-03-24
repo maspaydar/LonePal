@@ -8,7 +8,7 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  login: (username: string, pin: string, entityId: number) => Promise<void>;
+  login: (username: string, pin: string, entityId: number) => Promise<api.LoginResponse>;
   logout: () => Promise<void>;
 }
 
@@ -16,7 +16,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   isAuthenticated: false,
   resident: null,
-  login: async () => {},
+  login: async () => ({ token: '', expiresAt: '', isUnitAssigned: false, unit: null, resident: { id: 0, anonymousUsername: '', preferredName: '', entityId: 0, status: 'safe', unitId: null } }),
   logout: async () => {},
 });
 
@@ -40,9 +40,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const loginFn = useCallback(async (username: string, pin: string, entityId: number) => {
+  const loginFn = useCallback(async (username: string, pin: string, entityId: number): Promise<api.LoginResponse> => {
     const result = await api.login(username, pin, entityId);
     setState({ isLoading: false, isAuthenticated: true, resident: result.resident });
+    return result;
   }, []);
 
   const logoutFn = useCallback(async () => {
