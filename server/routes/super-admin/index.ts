@@ -7,6 +7,7 @@ import crypto from "crypto";
 import {
   superAdminLoginSchema,
   superAdminVerify2FASchema,
+  type Facility,
 } from "@shared/schema";
 import {
   signSuperAdminToken,
@@ -293,7 +294,7 @@ router.post("/facilities/:id/subscription", superAdminAuthMiddleware, async (req
       return res.status(400).json({ error: `Invalid action. Valid actions: ${validActions.join(", ")}` });
     }
 
-    let updateData: Partial<typeof facility> = {};
+    let updateData: Partial<Facility> = {};
 
     switch (action) {
       case "approve":
@@ -321,7 +322,7 @@ router.post("/facilities/:id/subscription", superAdminAuthMiddleware, async (req
         break;
     }
 
-    const updated = await storage.updateFacility(facilityId, updateData as any);
+    const updated = await storage.updateFacility(facilityId, updateData);
     res.json({ success: true, facility: updated });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to update subscription" });

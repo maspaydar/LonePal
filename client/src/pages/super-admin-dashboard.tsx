@@ -538,7 +538,7 @@ export default function SuperAdminDashboard() {
         </div>
 
         {activePanel === "registrations" && (
-          <RegistrationsPanel facilities={facilitiesData} />
+          <RegistrationsPanel facilities={facilitiesData ?? []} />
         )}
 
         {activePanel === "registry" && (<RegistryPanel
