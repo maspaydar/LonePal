@@ -121,11 +121,13 @@ router.get("/verify-email", async (req, res) => {
       trialEndsAt,
       status: "active",
       linkedEntityId: entity.id,
+      password: null,
     });
 
-    const appUrl = process.env.APP_URL || (process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : "http://localhost:5000");
+    let appUrl: string;
+    if (process.env.APP_URL) appUrl = process.env.APP_URL;
+    else if (process.env.REPLIT_DEV_DOMAIN) appUrl = `https://${process.env.REPLIT_DEV_DOMAIN}`;
+    else appUrl = "http://localhost:5000";
 
     if (facility.contactEmail && facility.contactName) {
       await sendWelcomeAndCredentialsEmail(
