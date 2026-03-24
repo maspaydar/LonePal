@@ -209,6 +209,7 @@ export const insertCommunityBroadcastSchema = createInsertSchema(communityBroadc
 export const insertMobileTokenSchema = createInsertSchema(mobileTokens).omit({ id: true, createdAt: true });
 
 export const facilityStatusEnum = pgEnum("facility_status", ["active", "inactive", "maintenance", "onboarding"]);
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["pending_verification", "trial", "active", "paused", "cancelled"]);
 
 export const superAdmins = pgTable("super_admins", {
   id: serial("id").primaryKey(),
@@ -227,8 +228,16 @@ export const facilities = pgTable("facilities", {
   facilityId: text("facility_id").notNull().unique(),
   name: text("name").notNull(),
   address: text("address"),
+  contactName: text("contact_name"),
   contactEmail: text("contact_email"),
   contactPhone: text("contact_phone"),
+  password: text("password"),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  verificationToken: text("verification_token"),
+  verificationTokenExpiresAt: timestamp("verification_token_expires_at"),
+  subscriptionStatus: subscriptionStatusEnum("subscription_status").notNull().default("pending_verification"),
+  trialEndsAt: timestamp("trial_ends_at"),
+  linkedEntityId: integer("linked_entity_id"),
   installationUrl: text("installation_url"),
   status: facilityStatusEnum("status").notNull().default("onboarding"),
   geminiApiKey: text("gemini_api_key"),
@@ -347,6 +356,14 @@ export const insertRecoveryExecutionLogSchema = createInsertSchema(recoveryExecu
 
 export const insertSuperAdminSchema = createInsertSchema(superAdmins).omit({ id: true, createdAt: true, lastLoginAt: true });
 export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: true, createdAt: true, lastHealthCheck: true, lastHealthStatus: true, uptimePercent: true });
+
+export const facilityRegistrationSchema = z.object({
+  facilityName: z.string().min(2, "Facility name must be at least 2 characters"),
+  contactName: z.string().min(2, "Contact name must be at least 2 characters"),
+  contactEmail: z.string().email("Valid email required"),
+  contactPhone: z.string().optional(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
 export const insertFacilityHealthLogSchema = createInsertSchema(facilityHealthLogs).omit({ id: true, checkedAt: true });
 
 export const superAdminLoginSchema = z.object({

@@ -43,6 +43,10 @@ import {
   Zap,
   Eye,
   Copy,
+  Mail,
+  CheckCircle,
+  XCircle,
+  UserCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -67,8 +71,12 @@ interface Facility {
   facilityId: string;
   name: string;
   address: string | null;
+  contactName: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
+  emailVerified: boolean;
+  subscriptionStatus: string;
+  trialEndsAt: string | null;
   installationUrl: string | null;
   status: string;
   geminiApiKey: string | null;
@@ -86,6 +94,8 @@ interface DashboardData {
   inactive: number;
   maintenance: number;
   onboarding: number;
+  pendingVerification: number;
+  trial: number;
   healthy: number;
   unhealthy: number;
   totalResidents: number;
@@ -121,7 +131,7 @@ export default function SuperAdminDashboard() {
   const [verifyCode, setVerifyCode] = useState("");
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
 
-  const [activePanel, setActivePanel] = useState<"registry" | "healthmap" | "logstream" | "broadcast" | "recovery" | "provision">("registry");
+  const [activePanel, setActivePanel] = useState<"registrations" | "registry" | "healthmap" | "logstream" | "broadcast" | "recovery" | "provision">("registrations");
 
   const [showMaintenance, setShowMaintenance] = useState(false);
   const [maintenanceFacility, setMaintenanceFacility] = useState<Facility | null>(null);
@@ -430,15 +440,37 @@ export default function SuperAdminDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto p-4 space-y-6">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <Card>
             <CardContent className="pt-4 pb-3 px-4">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs text-muted-foreground">Total Facilities</p>
+                  <p className="text-xs text-muted-foreground">Total</p>
                   <p className="text-2xl font-bold" data-testid="text-total-facilities">{dashData?.totalFacilities || 0}</p>
                 </div>
-                <Building2 className="w-8 h-8 text-muted-foreground/50" />
+                <Building2 className="w-6 h-6 text-muted-foreground/50" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">Pending Email</p>
+                  <p className="text-2xl font-bold text-amber-600" data-testid="text-pending-verification">{dashData?.pendingVerification || 0}</p>
+                </div>
+                <Mail className="w-6 h-6 text-amber-500/50" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">On Trial</p>
+                  <p className="text-2xl font-bold text-blue-600" data-testid="text-trial">{dashData?.trial || 0}</p>
+                </div>
+                <Clock className="w-6 h-6 text-blue-500/50" />
               </div>
             </CardContent>
           </Card>
@@ -449,7 +481,7 @@ export default function SuperAdminDashboard() {
                   <p className="text-xs text-muted-foreground">Active</p>
                   <p className="text-2xl font-bold text-green-600" data-testid="text-active-facilities">{dashData?.active || 0}</p>
                 </div>
-                <Wifi className="w-8 h-8 text-green-500/50" />
+                <Wifi className="w-6 h-6 text-green-500/50" />
               </div>
             </CardContent>
           </Card>
@@ -457,10 +489,10 @@ export default function SuperAdminDashboard() {
             <CardContent className="pt-4 pb-3 px-4">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs text-muted-foreground">Total Residents</p>
+                  <p className="text-xs text-muted-foreground">Residents</p>
                   <p className="text-2xl font-bold" data-testid="text-total-residents">{dashData?.totalResidents || 0}</p>
                 </div>
-                <Users className="w-8 h-8 text-muted-foreground/50" />
+                <Users className="w-6 h-6 text-muted-foreground/50" />
               </div>
             </CardContent>
           </Card>
@@ -468,10 +500,10 @@ export default function SuperAdminDashboard() {
             <CardContent className="pt-4 pb-3 px-4">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs text-muted-foreground">Health Issues</p>
+                  <p className="text-xs text-muted-foreground">Issues</p>
                   <p className="text-2xl font-bold text-red-600" data-testid="text-unhealthy">{dashData?.unhealthy || 0}</p>
                 </div>
-                <Activity className="w-8 h-8 text-red-500/50" />
+                <Activity className="w-6 h-6 text-red-500/50" />
               </div>
             </CardContent>
           </Card>
@@ -479,6 +511,7 @@ export default function SuperAdminDashboard() {
 
         <div className="flex items-center gap-2 flex-wrap">
           {([
+            { id: "registrations", label: "Registrations", icon: UserCheck },
             { id: "registry", label: "Facility Registry", icon: Building2 },
             { id: "provision", label: "Provision Company", icon: Plus },
             { id: "healthmap", label: "Health Map", icon: Map },
@@ -495,9 +528,18 @@ export default function SuperAdminDashboard() {
             >
               <tab.icon className="w-4 h-4 mr-1" />
               {tab.label}
+              {tab.id === "registrations" && (dashData?.pendingVerification || 0) + (dashData?.trial || 0) > 0 && (
+                <span className="ml-1 bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">
+                  {(dashData?.pendingVerification || 0) + (dashData?.trial || 0)}
+                </span>
+              )}
             </Button>
           ))}
         </div>
+
+        {activePanel === "registrations" && (
+          <RegistrationsPanel facilities={facilitiesData} />
+        )}
 
         {activePanel === "registry" && (<RegistryPanel
           dashData={dashData}
@@ -565,6 +607,226 @@ export default function SuperAdminDashboard() {
         clearCacheMutation={clearCacheMutation}
         toast={toast}
       />
+    </div>
+  );
+}
+
+function RegistrationsPanel({ facilities }: { facilities: Facility[] }) {
+  const { toast } = useToast();
+  const pendingVerification = facilities.filter(f => f.subscriptionStatus === "pending_verification");
+  const trial = facilities.filter(f => f.subscriptionStatus === "trial");
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "N/A";
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", year: "numeric",
+    });
+  };
+
+  const trialDaysLeft = (trialEndsAt: string | null) => {
+    if (!trialEndsAt) return null;
+    const diff = new Date(trialEndsAt).getTime() - Date.now();
+    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  };
+
+  const subscriptionMutation = useMutation({
+    mutationFn: async ({ facilityId, action, extendDays }: { facilityId: number; action: string; extendDays?: number }) => {
+      const res = await fetch(`/api/super-admin/facilities/${facilityId}/subscription`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ action, extendDays }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to update subscription");
+      }
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      const labels: Record<string, string> = {
+        "approve": "Activated",
+        "extend-trial": "Trial extended by 30 days",
+        "pause": "Paused",
+        "cancel": "Cancelled",
+        "reactivate": "Reactivated",
+      };
+      toast({ title: "Updated", description: labels[variables.action] || "Action applied." });
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/dashboard"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to update subscription", variant: "destructive" });
+    },
+  });
+
+  const renderPendingRows = (rows: Facility[]) => {
+    if (rows.length === 0) {
+      return (
+        <tr>
+          <td colSpan={4} className="py-8 text-center text-muted-foreground text-sm">
+            No facilities awaiting email verification.
+          </td>
+        </tr>
+      );
+    }
+    return rows.map(f => (
+      <tr key={f.id} className="border-b hover:bg-muted/30 transition-colors" data-testid={`row-registration-${f.id}`}>
+        <td className="py-3 px-4">
+          <div className="font-medium text-sm">{f.name}</div>
+          <div className="text-xs text-muted-foreground">{f.facilityId}</div>
+        </td>
+        <td className="py-3 px-4">
+          <div className="text-sm">{f.contactName || "—"}</div>
+          <div className="text-xs text-muted-foreground">{f.contactEmail || "—"}</div>
+        </td>
+        <td className="py-3 px-4 text-sm text-muted-foreground">{formatDate(f.createdAt)}</td>
+        <td className="py-3 px-4">
+          <span className="flex items-center gap-1 text-amber-600 text-xs">
+            <XCircle className="w-3 h-3" /> Unverified
+          </span>
+        </td>
+      </tr>
+    ));
+  };
+
+  const renderTrialRows = (rows: Facility[]) => {
+    if (rows.length === 0) {
+      return (
+        <tr>
+          <td colSpan={5} className="py-8 text-center text-muted-foreground text-sm">
+            No facilities on trial.
+          </td>
+        </tr>
+      );
+    }
+    return rows.map(f => {
+      const daysLeft = trialDaysLeft(f.trialEndsAt);
+      const isPending = subscriptionMutation.isPending;
+      return (
+        <tr key={f.id} className="border-b hover:bg-muted/30 transition-colors" data-testid={`row-trial-${f.id}`}>
+          <td className="py-3 px-4">
+            <div className="font-medium text-sm">{f.name}</div>
+            <div className="text-xs text-muted-foreground">{f.facilityId}</div>
+          </td>
+          <td className="py-3 px-4">
+            <div className="text-sm">{f.contactName || "—"}</div>
+            <div className="text-xs text-muted-foreground">{f.contactEmail || "—"}</div>
+          </td>
+          <td className="py-3 px-4">
+            {daysLeft !== null ? (
+              <span className={daysLeft <= 7 ? "text-amber-600 font-medium text-sm" : "text-sm"}>
+                {daysLeft}d left
+                <div className="text-xs font-normal text-muted-foreground">{formatDate(f.trialEndsAt)}</div>
+              </span>
+            ) : "—"}
+          </td>
+          <td className="py-3 px-4">
+            {f.emailVerified ? (
+              <span className="flex items-center gap-1 text-green-600 text-xs">
+                <CheckCircle className="w-3 h-3" /> Verified
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-amber-600 text-xs">
+                <XCircle className="w-3 h-3" /> Unverified
+              </span>
+            )}
+          </td>
+          <td className="py-3 px-4">
+            <div className="flex items-center gap-1 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs text-green-700 border-green-300 hover:bg-green-50"
+                disabled={isPending}
+                data-testid={`button-approve-${f.id}`}
+                onClick={() => subscriptionMutation.mutate({ facilityId: f.id, action: "approve" })}
+              >
+                Activate
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs text-blue-700 border-blue-300 hover:bg-blue-50"
+                disabled={isPending}
+                data-testid={`button-extend-${f.id}`}
+                onClick={() => subscriptionMutation.mutate({ facilityId: f.id, action: "extend-trial", extendDays: 30 })}
+              >
+                +30d
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs text-red-700 border-red-300 hover:bg-red-50"
+                disabled={isPending}
+                data-testid={`button-pause-${f.id}`}
+                onClick={() => subscriptionMutation.mutate({ facilityId: f.id, action: "pause" })}
+              >
+                Pause
+              </Button>
+            </div>
+          </td>
+        </tr>
+      );
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Mail className="w-4 h-4 text-amber-500" />
+            Awaiting Email Verification
+            {pendingVerification.length > 0 && (
+              <Badge className="ml-1 bg-amber-500 text-white">{pendingVerification.length}</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>Facilities that registered but haven't verified their email yet.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/30">
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Facility</th>
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Contact</th>
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Registered</th>
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Email</th>
+                </tr>
+              </thead>
+              <tbody>{renderPendingRows(pendingVerification)}</tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="w-4 h-4 text-blue-500" />
+            Active Trials
+            {trial.length > 0 && (
+              <Badge className="ml-1 bg-blue-500 text-white">{trial.length}</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>Facilities on their 30-day free trial. Use actions to activate, extend, or pause.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/30">
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Facility</th>
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Contact</th>
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Trial Ends</th>
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Email</th>
+                  <th className="py-2 px-4 text-left font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>{renderTrialRows(trial)}</tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

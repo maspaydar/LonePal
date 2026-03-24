@@ -23,6 +23,7 @@ import maintenanceRouter from "./routes/maintenance";
 import esp32Router from "./routes/iot/index";
 import companyRouter from "./routes/company/index";
 import mobileRouter from "./routes/mobile/index";
+import registrationRouter from "./routes/registration";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
 import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices } from "./services/esp32-speaker";
 import { initLogStreamer, streamInfo } from "./services/log-streamer";
@@ -79,6 +80,7 @@ export async function registerRoutes(
   app.use("/api/esp32", esp32Router);
   app.use("/api/company", companyRouter);
   app.use("/api/mobile", mobileRouter);
+  app.use("/api", registrationRouter);
 
   app.get("/api/health", async (_req, res) => {
     try {

@@ -34,7 +34,8 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast({ title: "Login failed", description: data.error || "Invalid credentials", variant: "destructive" });
+        const message = data.message || data.error || "Invalid credentials";
+        toast({ title: "Login failed", description: message, variant: "destructive" });
         return;
       }
       setSession(data);
@@ -114,8 +115,16 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Contact your administrator if you need access
+        <p className="text-center text-sm text-muted-foreground">
+          New to HeyGrand?{" "}
+          <button
+            type="button"
+            onClick={() => setLocation("/register")}
+            className="text-primary underline-offset-4 hover:underline"
+            data-testid="link-register"
+          >
+            Register your facility
+          </button>
         </p>
       </div>
     </div>

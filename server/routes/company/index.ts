@@ -31,6 +31,22 @@ router.post("/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Account has been deactivated" });
     }
 
+    const facility = await storage.getFacilityByLinkedEntityId(user.entityId);
+    if (facility) {
+      if (facility.subscriptionStatus === "paused") {
+        return res.status(403).json({
+          error: "subscription_paused",
+          message: "Your facility's subscription has expired. Please contact support to renew.",
+        });
+      }
+      if (facility.subscriptionStatus === "cancelled") {
+        return res.status(403).json({
+          error: "subscription_cancelled",
+          message: "Your facility's subscription has been cancelled. Please contact support.",
+        });
+      }
+    }
+
     const passwordValid = await bcrypt.compare(password, user.password);
     if (!passwordValid) {
       return res.status(401).json({ error: "Invalid credentials" });

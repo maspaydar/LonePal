@@ -281,6 +281,53 @@ router.delete("/facilities/:id", superAdminAuthMiddleware, async (req, res) => {
   res.json({ deleted: true });
 });
 
+router.post("/facilities/:id/subscription", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const facilityId = Number(req.params.id);
+    const facility = await storage.getFacility(facilityId);
+    if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    const { action, extendDays } = req.body;
+    const validActions = ["approve", "extend-trial", "pause", "cancel", "reactivate"];
+    if (!action || !validActions.includes(action)) {
+      return res.status(400).json({ error: `Invalid action. Valid actions: ${validActions.join(", ")}` });
+    }
+
+    let updateData: Partial<typeof facility> = {};
+
+    switch (action) {
+      case "approve":
+        updateData = { subscriptionStatus: "active" };
+        break;
+      case "extend-trial": {
+        const days = Number(extendDays) || 30;
+        const currentEnd = facility.trialEndsAt ? new Date(facility.trialEndsAt) : new Date();
+        if (currentEnd < new Date()) currentEnd.setTime(new Date().getTime());
+        currentEnd.setDate(currentEnd.getDate() + days);
+        updateData = {
+          subscriptionStatus: "trial",
+          trialEndsAt: currentEnd,
+        };
+        break;
+      }
+      case "pause":
+        updateData = { subscriptionStatus: "paused" };
+        break;
+      case "cancel":
+        updateData = { subscriptionStatus: "cancelled" };
+        break;
+      case "reactivate":
+        updateData = { subscriptionStatus: "active" };
+        break;
+    }
+
+    const updated = await storage.updateFacility(facilityId, updateData as any);
+    res.json({ success: true, facility: updated });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to update subscription" });
+  }
+});
+
 router.post("/facilities/:id/push-config", superAdminAuthMiddleware, async (req, res) => {
   try {
     const facility = await storage.getFacility(Number(req.params.id));
@@ -896,6 +943,9 @@ router.get("/dashboard", superAdminAuthMiddleware, async (_req, res) => {
   const maintenance = allFacilities.filter(f => f.status === "maintenance").length;
   const onboarding = allFacilities.filter(f => f.status === "onboarding").length;
 
+  const pendingVerification = allFacilities.filter(f => f.subscriptionStatus === "pending_verification").length;
+  const trial = allFacilities.filter(f => f.subscriptionStatus === "trial").length;
+
   const healthy = allFacilities.filter(f => f.lastHealthStatus === "healthy").length;
   const unhealthy = allFacilities.filter(f => f.lastHealthStatus === "unhealthy" || f.lastHealthStatus === "unreachable").length;
 
@@ -907,12 +957,15 @@ router.get("/dashboard", superAdminAuthMiddleware, async (_req, res) => {
     inactive,
     maintenance,
     onboarding,
+    pendingVerification,
+    trial,
     healthy,
     unhealthy,
     totalResidents,
     facilities: allFacilities.map(f => ({
       ...f,
       geminiApiKey: f.geminiApiKey ? "****" + f.geminiApiKey.slice(-4) : null,
+      password: undefined,
     })),
   });
 });

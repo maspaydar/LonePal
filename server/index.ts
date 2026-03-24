@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { ensureDataRoot } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
 import { tenantResolver } from "./middleware/tenant-resolver";
+import { startTrialScheduler } from "./services/trial-scheduler";
 
 const app = express();
 const httpServer = createServer(app);
@@ -18,6 +19,7 @@ declare module "http" {
 
 ensureDataRoot();
 dailyLogger.init();
+startTrialScheduler();
 
 app.use(cors({
   origin: true,

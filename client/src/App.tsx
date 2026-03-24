@@ -27,6 +27,8 @@ import SuperAdminLogin from "@/pages/super-admin-login";
 import SuperAdminDashboard from "@/pages/super-admin-dashboard";
 import LoginPage from "@/pages/login";
 import UserManagement from "@/pages/user-management";
+import RegisterPage from "@/pages/register";
+import VerifyEmailPage from "@/pages/verify-email";
 
 function CompanyAuthGuard({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useCompanyAuth();
@@ -157,6 +159,8 @@ function App() {
               <SuperAdminRouter />
             </Route>
             <Route path="/login" component={LoginPage} />
+            <Route path="/register" component={RegisterPage} />
+            <Route path="/verify-email" component={VerifyEmailPage} />
             <Route>
               <CompanyAuthGuard>
                 <AppLayout />

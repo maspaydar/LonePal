@@ -34,3 +34,41 @@ The system employs a multi-tenant architecture with data isolation at both the d
     - ESP32-S3-BOX-3 with HLK-LD2410 mmWave sensors (for custom sensor and speaker functionality)
 - **Authentication:** `bcryptjs`, `jsonwebtoken`, `otplib` (for TOTP 2FA)
 - **Mobile Development:** Expo (expo-router, expo-secure-store, expo-av, expo-speech)
+- **Email:** Nodemailer (SMTP-based, falls back to console logging)
+
+## SaaS Self-Registration & Subscription Lifecycle
+
+### Registration Flow
+1. Facility admin visits `/register` → fills out facility name, contact name, email, password, phone (optional)
+2. System creates facility record in `pending_verification` state, sends verification email
+3. Admin clicks link in email → `/verify-email?token=...` → system creates entity + admin user records, transitions to `trial`
+4. 30-day free trial begins (`trialEndsAt = now + 30 days`)
+5. Login page at `/login` includes a "Register your facility" link
+
+### Subscription States (`subscriptionStatus`)
+- `pending_verification` — registered but email not yet verified
+- `trial` — email verified, 30-day free trial active
+- `active` — paid subscription (manually set by super admin or future Stripe integration)
+- `paused` — trial expired or subscription lapsed; login blocked with clear message
+- `cancelled` — cancelled by super admin; login blocked
+
+### Trial Lifecycle (Task #8)
+- **Trial scheduler** (`server/services/trial-scheduler.ts`): runs on server start and every 1 hour, queries facilities where `subscriptionStatus = trial AND trialEndsAt < NOW()` and transitions them to `paused`
+- **Login block**: `POST /api/company/auth/login` checks facility's `subscriptionStatus` via `getFacilityByLinkedEntityId(entityId)` and returns 403 with human-readable message for paused/cancelled states
+- **Super Admin controls** (`POST /api/super-admin/facilities/:id/subscription`): actions = approve (→active), extend-trial (+N days), pause, cancel, reactivate (→active)
+
+### Super Admin Dashboard Updates
+- Stats bar now shows 6 cards: Total, Pending Email, On Trial, Active, Residents, Issues
+- New "Registrations" panel tab (default active) with badge showing pending+trial count
+- Registrations panel: two tables — "Awaiting Email Verification" and "Active Trials" with action buttons (Activate, +30d, Pause)
+
+### Email Service (`server/services/email-service.ts`)
+- SMTP env vars: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `APP_URL`
+- Without SMTP config, emails are logged to console (dev mode)
+- Sends: verification email, welcome+credentials email (on verification), super admin notification
+
+### Storage Methods Added
+- `getFacilityByContactEmail(email)` — uniqueness check on registration
+- `getFacilityByVerificationToken(token)` — email verification lookup
+- `getFacilityByLinkedEntityId(entityId)` — subscription status check on login
+- `getExpiredTrialFacilities()` — scheduler query for expired trials

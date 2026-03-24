@@ -122,12 +122,17 @@ export interface IStorage {
 
   getSuperAdminByEmail(email: string): Promise<SuperAdmin | undefined>;
   getSuperAdmin(id: number): Promise<SuperAdmin | undefined>;
+  getAllSuperAdmins(): Promise<SuperAdmin[]>;
   createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin>;
   updateSuperAdmin(id: number, data: Partial<SuperAdmin>): Promise<SuperAdmin | undefined>;
 
   getFacilities(): Promise<Facility[]>;
   getFacility(id: number): Promise<Facility | undefined>;
   getFacilityByFacilityId(facilityId: string): Promise<Facility | undefined>;
+  getFacilityByContactEmail(email: string): Promise<Facility | undefined>;
+  getFacilityByVerificationToken(token: string): Promise<Facility | undefined>;
+  getFacilityByLinkedEntityId(entityId: number): Promise<Facility | undefined>;
+  getExpiredTrialFacilities(): Promise<Facility[]>;
   createFacility(facility: InsertFacility): Promise<Facility>;
   updateFacility(id: number, data: Partial<Facility>): Promise<Facility | undefined>;
   deleteFacility(id: number): Promise<void>;
@@ -621,6 +626,10 @@ export class DatabaseStorage implements IStorage {
     return admin;
   }
 
+  async getAllSuperAdmins(): Promise<SuperAdmin[]> {
+    return db.select().from(superAdmins).where(eq(superAdmins.isActive, true));
+  }
+
   async createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin> {
     const [created] = await db.insert(superAdmins).values(admin).returning();
     return created;
@@ -643,6 +652,30 @@ export class DatabaseStorage implements IStorage {
   async getFacilityByFacilityId(facilityId: string): Promise<Facility | undefined> {
     const [facility] = await db.select().from(facilities).where(eq(facilities.facilityId, facilityId));
     return facility;
+  }
+
+  async getFacilityByContactEmail(email: string): Promise<Facility | undefined> {
+    const [facility] = await db.select().from(facilities).where(eq(facilities.contactEmail, email));
+    return facility;
+  }
+
+  async getFacilityByVerificationToken(token: string): Promise<Facility | undefined> {
+    const [facility] = await db.select().from(facilities).where(eq(facilities.verificationToken, token));
+    return facility;
+  }
+
+  async getFacilityByLinkedEntityId(entityId: number): Promise<Facility | undefined> {
+    const [facility] = await db.select().from(facilities).where(eq(facilities.linkedEntityId, entityId));
+    return facility;
+  }
+
+  async getExpiredTrialFacilities(): Promise<Facility[]> {
+    return db.select().from(facilities).where(
+      and(
+        eq(facilities.subscriptionStatus, "trial"),
+        sql`${facilities.trialEndsAt} < NOW()`
+      )
+    );
   }
 
   async createFacility(facility: InsertFacility): Promise<Facility> {
