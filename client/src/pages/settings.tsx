@@ -1,17 +1,36 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Settings as SettingsIcon, Database, Wifi, Shield } from "lucide-react";
-import { useCompanyAuth } from "@/hooks/use-company-auth";
+import { Settings as SettingsIcon, Database, Wifi, Shield, CreditCard, ExternalLink, RefreshCw, Clock } from "lucide-react";
+import { useCompanyAuth, getCompanyAuthHeaders } from "@/hooks/use-company-auth";
+import { Link } from "wouter";
+
+interface SubscriptionStatus {
+  status: string | null;
+  trialEndsAt: string | null;
+  daysRemaining: number | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  currentPeriodEnd: number | null;
+}
+
+function formatDate(ts: number) {
+  return new Date(ts * 1000).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const { getEntityId, getEntity } = useCompanyAuth();
   const eid = getEntityId();
   const entity = getEntity();
+  const headers = getCompanyAuthHeaders();
 
   const seedMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/seed"),
@@ -20,6 +39,39 @@ export default function SettingsPage() {
       toast({ title: "Demo data loaded" });
     },
   });
+
+  const { data: subStatus } = useQuery<SubscriptionStatus>({
+    queryKey: ["/api/company/subscription-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/company/subscription-status", { headers });
+      if (!res.ok) return { status: null, trialEndsAt: null, daysRemaining: null, stripeCustomerId: null, stripeSubscriptionId: null, currentPeriodEnd: null };
+      return res.json();
+    },
+  });
+
+  const portalMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/company/billing/portal", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Portal access failed");
+      return data as { url: string };
+    },
+    onSuccess: (data) => {
+      window.location.href = data.url;
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const status = subStatus?.status;
+  const isActive = status === "active";
+  const isTrial = status === "trial";
+  const isPaused = status === "paused" || status === "cancelled";
+  const hasStripeCustomer = !!subStatus?.stripeCustomerId;
 
   return (
     <div className="p-6 space-y-6">
@@ -47,6 +99,54 @@ export default function SettingsPage() {
             >
               {seedMutation.isPending ? "Loading..." : "Load Demo Data"}
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CreditCard className="h-4 w-4" /> Billing & Subscription
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              {isActive && <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0 text-xs" data-testid="badge-settings-active">Active</Badge>}
+              {isTrial && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-0 text-xs" data-testid="badge-settings-trial">Free Trial</Badge>}
+              {isPaused && <Badge variant="destructive" className="text-xs" data-testid="badge-settings-paused">Paused</Badge>}
+            </div>
+            {isTrial && subStatus?.daysRemaining !== null && (
+              <p className="text-sm text-muted-foreground flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {subStatus.daysRemaining === 0 ? "Trial expires today" : `${subStatus.daysRemaining} day${subStatus.daysRemaining === 1 ? "" : "s"} remaining in trial`}
+              </p>
+            )}
+            {isActive && subStatus?.currentPeriodEnd && (
+              <p className="text-sm text-muted-foreground">
+                Next billing: {formatDate(subStatus.currentPeriodEnd)}
+              </p>
+            )}
+            {!isActive && (
+              <p className="text-sm text-muted-foreground">
+                {isPaused ? "Your subscription has expired." : "Subscribe to unlock full access."}
+              </p>
+            )}
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" size="sm" asChild data-testid="button-view-billing">
+                <Link to="/billing">View Plans</Link>
+              </Button>
+              {hasStripeCustomer && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => portalMutation.mutate()}
+                  disabled={portalMutation.isPending}
+                  data-testid="button-manage-billing-settings"
+                >
+                  {portalMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin mr-1" /> : <ExternalLink className="w-3 h-3 mr-1" />}
+                  Manage
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
 

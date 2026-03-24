@@ -237,6 +237,8 @@ export const facilities = pgTable("facilities", {
   verificationTokenExpiresAt: timestamp("verification_token_expires_at"),
   subscriptionStatus: subscriptionStatusEnum("subscription_status").notNull().default("pending_verification"),
   trialEndsAt: timestamp("trial_ends_at"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
   linkedEntityId: integer("linked_entity_id"),
   installationUrl: text("installation_url"),
   status: facilityStatusEnum("status").notNull().default("onboarding"),

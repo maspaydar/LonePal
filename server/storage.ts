@@ -132,6 +132,7 @@ export interface IStorage {
   getFacilityByContactEmail(email: string): Promise<Facility | undefined>;
   getFacilityByVerificationToken(token: string): Promise<Facility | undefined>;
   getFacilityByLinkedEntityId(entityId: number): Promise<Facility | undefined>;
+  getFacilityByStripeCustomerId(customerId: string): Promise<Facility | undefined>;
   getExpiredTrialFacilities(): Promise<Facility[]>;
   createFacility(facility: InsertFacility): Promise<Facility>;
   updateFacility(id: number, data: Partial<Facility>): Promise<Facility | undefined>;
@@ -666,6 +667,11 @@ export class DatabaseStorage implements IStorage {
 
   async getFacilityByLinkedEntityId(entityId: number): Promise<Facility | undefined> {
     const [facility] = await db.select().from(facilities).where(eq(facilities.linkedEntityId, entityId));
+    return facility;
+  }
+
+  async getFacilityByStripeCustomerId(customerId: string): Promise<Facility | undefined> {
+    const [facility] = await db.select().from(facilities).where(eq(facilities.stripeCustomerId, customerId));
     return facility;
   }
 

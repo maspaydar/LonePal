@@ -24,6 +24,7 @@ import esp32Router from "./routes/iot/index";
 import companyRouter from "./routes/company/index";
 import mobileRouter from "./routes/mobile/index";
 import registrationRouter from "./routes/registration";
+import { WebhookHandlers } from "./webhookHandlers";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
 import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices } from "./services/esp32-speaker";
 import { initLogStreamer, streamInfo } from "./services/log-streamer";
@@ -81,6 +82,65 @@ export async function registerRoutes(
   app.use("/api/company", companyRouter);
   app.use("/api/mobile", mobileRouter);
   app.use("/api", registrationRouter);
+
+  app.post("/api/stripe/webhook", async (req, res) => {
+    const signature = req.headers["stripe-signature"];
+    if (!signature) return res.status(400).json({ error: "Missing stripe-signature" });
+
+    const sig = Array.isArray(signature) ? signature[0] : signature;
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+
+    if (!rawBody || !Buffer.isBuffer(rawBody)) {
+      return res.status(400).json({ error: "Raw body not available" });
+    }
+
+    try {
+      await WebhookHandlers.processWebhook(rawBody, sig);
+
+      const event = JSON.parse(rawBody.toString());
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+        const facilityId = session.metadata?.facilityId;
+        const customerId = session.customer;
+        const subscriptionId = session.subscription;
+        if (facilityId && customerId && subscriptionId) {
+          await storage.updateFacility(Number(facilityId), {
+            stripeCustomerId: customerId,
+            stripeSubscriptionId: subscriptionId,
+            subscriptionStatus: "active",
+          });
+          log(`Stripe checkout completed: facility=${facilityId} sub=${subscriptionId}`, "stripe");
+        }
+      } else if (event.type === "customer.subscription.deleted") {
+        const sub = event.data.object;
+        const facility = await storage.getFacilityByStripeCustomerId(sub.customer);
+        if (facility) {
+          await storage.updateFacility(facility.id, { subscriptionStatus: "cancelled", stripeSubscriptionId: null as any });
+          log(`Stripe subscription cancelled: facility=${facility.id}`, "stripe");
+        }
+      } else if (event.type === "customer.subscription.updated") {
+        const sub = event.data.object;
+        const facility = await storage.getFacilityByStripeCustomerId(sub.customer);
+        if (facility) {
+          const status = sub.status === "active" ? "active" : sub.status === "past_due" ? "paused" : facility.subscriptionStatus;
+          await storage.updateFacility(facility.id, { subscriptionStatus: status as any });
+          log(`Stripe subscription updated: facility=${facility.id} status=${status}`, "stripe");
+        }
+      } else if (event.type === "invoice.payment_failed") {
+        const invoice = event.data.object;
+        const facility = await storage.getFacilityByStripeCustomerId(invoice.customer);
+        if (facility) {
+          await storage.updateFacility(facility.id, { subscriptionStatus: "paused" });
+          log(`Stripe payment failed: facility=${facility.id}`, "stripe");
+        }
+      }
+
+      res.status(200).json({ received: true });
+    } catch (error: any) {
+      log(`Stripe webhook error: ${error.message}`, "stripe");
+      res.status(400).json({ error: "Webhook processing failed" });
+    }
+  });
 
   app.get("/api/health", async (_req, res) => {
     try {

@@ -11,6 +11,7 @@ import {
   Building2,
   UserCog,
   LogOut,
+  CreditCard,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,6 +41,7 @@ const navItems = [
 
 const configItems = [
   { title: "Scenario Rules", url: "/scenario-config", icon: Zap },
+  { title: "Billing", url: "/billing", icon: CreditCard },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

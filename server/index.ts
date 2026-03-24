@@ -7,19 +7,46 @@ import { ensureDataRoot } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
 import { tenantResolver } from "./middleware/tenant-resolver";
 import { startTrialScheduler } from "./services/trial-scheduler";
+import { runMigrations } from "stripe-replit-sync";
+import { getStripeSync } from "./stripeClient";
 
 const app = express();
 const httpServer = createServer(app);
 
 declare module "http" {
   interface IncomingMessage {
-    rawBody: unknown;
+    rawBody: Buffer | unknown;
   }
 }
 
 ensureDataRoot();
 dailyLogger.init();
 startTrialScheduler();
+
+async function initStripe() {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    console.warn("DATABASE_URL not set — skipping Stripe initialization");
+    return;
+  }
+  try {
+    await runMigrations({ databaseUrl, schema: "stripe" });
+    const stripeSync = await getStripeSync();
+    const domain = process.env.REPLIT_DOMAINS?.split(",")[0];
+    if (domain) {
+      const webhookBaseUrl = `https://${domain}`;
+      await stripeSync.findOrCreateManagedWebhook(`${webhookBaseUrl}/api/stripe/webhook`);
+    }
+    stripeSync.syncBackfill().catch((err: any) => {
+      console.error("Stripe syncBackfill error:", err?.message);
+    });
+    console.log("Stripe initialized");
+  } catch (err: any) {
+    console.error("Stripe initialization failed:", err?.message);
+  }
+}
+
+initStripe();
 
 app.use(cors({
   origin: true,

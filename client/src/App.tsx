@@ -12,6 +12,7 @@ import { useCallback, useState, type ReactNode } from "react";
 import { useCompanyAuth, getCompanyEntityId, getCompanyAuthHeaders } from "@/hooks/use-company-auth";
 import { X, Clock, PauseCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Link } from "wouter";
 
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
@@ -31,6 +32,7 @@ import LoginPage from "@/pages/login";
 import UserManagement from "@/pages/user-management";
 import RegisterPage from "@/pages/register";
 import VerifyEmailPage from "@/pages/verify-email";
+import BillingPage from "@/pages/billing";
 
 interface SubscriptionStatus {
   status: string | null;
@@ -55,7 +57,11 @@ function TrialBanner({ daysRemaining, onDismiss }: { daysRemaining: number; onDi
           {daysRemaining === 0
             ? "Your free trial expires today."
             : `Your free trial ends in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"}.`}
-          {" "}Contact support to subscribe and keep full access.
+          {" "}
+          <Link to="/billing" className="underline font-medium hover:opacity-90" data-testid="link-trial-subscribe">
+            Subscribe now
+          </Link>
+          {" "}to keep full access.
         </span>
       </div>
       <button
@@ -127,6 +133,7 @@ function AdminRouter() {
       <Route path="/units" component={Units} />
       <Route path="/scenario-config" component={ScenarioConfig} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/billing" component={BillingPage} />
       <Route path="/conversations/:id" component={ConversationDetail} />
       <Route path="/user-management">
         <AdminOnlyGuard>

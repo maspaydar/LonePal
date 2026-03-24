@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { storage } from "../../storage";
 import bcrypt from "bcryptjs";
+import { db } from "../../db";
+import { sql } from "drizzle-orm";
 import {
   companyLoginSchema,
   createCompanyUserSchema,
@@ -11,6 +13,7 @@ import {
   requireCompanyAuthBasic,
   requireCompanyAdmin,
 } from "../../middleware/company-auth";
+import { getUncachableStripeClient, getStripePublishableKey } from "../../stripeClient";
 
 const router = Router();
 
@@ -228,13 +231,130 @@ router.get("/subscription-status", requireCompanyAuthBasic, async (req, res) => 
         ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
         : null;
 
+    let stripeSubscription: any = null;
+    if (facility.stripeSubscriptionId) {
+      try {
+        const result = await db.execute(
+          sql`SELECT * FROM stripe.subscriptions WHERE id = ${facility.stripeSubscriptionId} LIMIT 1`
+        );
+        stripeSubscription = result.rows[0] || null;
+      } catch {}
+    }
+
     res.json({
       status: currentStatus,
       trialEndsAt: facility.trialEndsAt,
       daysRemaining,
+      stripeCustomerId: facility.stripeCustomerId,
+      stripeSubscriptionId: facility.stripeSubscriptionId,
+      currentPeriodEnd: stripeSubscription?.current_period_end ?? null,
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch subscription status" });
+  }
+});
+
+router.get("/billing/prices", requireCompanyAuthBasic, async (_req, res) => {
+  try {
+    const stripe = await getUncachableStripeClient();
+    const priceList = await stripe.prices.list({ active: true, expand: ["data.product"], limit: 20 });
+    const prices = priceList.data
+      .filter((p) => p.type === "recurring" && p.product && typeof p.product !== "string" && (p.product as any).active)
+      .map((p) => {
+        const product = p.product as any;
+        return {
+          price_id: p.id,
+          product_id: product.id,
+          product_name: product.name,
+          product_description: product.description,
+          unit_amount: p.unit_amount,
+          currency: p.currency,
+          recurring: p.recurring,
+        };
+      })
+      .sort((a, b) => (a.unit_amount || 0) - (b.unit_amount || 0));
+    res.json({ prices });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to fetch prices", detail: error.message });
+  }
+});
+
+router.get("/billing/publishable-key", requireCompanyAuthBasic, async (_req, res) => {
+  try {
+    const key = await getStripePublishableKey();
+    res.json({ publishableKey: key });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to get publishable key" });
+  }
+});
+
+router.post("/billing/checkout", requireCompanyAuthBasic, async (req, res) => {
+  try {
+    const entityId = req.companyUser!.entityId;
+    const facility = await storage.getFacilityByLinkedEntityId(entityId);
+    if (!facility) {
+      return res.status(404).json({ error: "Facility not found" });
+    }
+
+    const { priceId } = req.body;
+    if (!priceId) {
+      return res.status(400).json({ error: "priceId is required" });
+    }
+
+    const stripe = await getUncachableStripeClient();
+
+    let customerId = facility.stripeCustomerId;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: facility.contactEmail || undefined,
+        name: facility.name,
+        metadata: { facilityId: String(facility.id), facilitySlug: facility.facilityId },
+      });
+      customerId = customer.id;
+      await storage.updateFacility(facility.id, { stripeCustomerId: customerId });
+    }
+
+    const host = req.get("host");
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+    const baseUrl = `${protocol}://${host}`;
+
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      mode: "subscription",
+      success_url: `${baseUrl}/billing?success=1`,
+      cancel_url: `${baseUrl}/billing?cancelled=1`,
+      metadata: { facilityId: String(facility.id) },
+    });
+
+    res.json({ url: session.url });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to create checkout session", detail: error.message });
+  }
+});
+
+router.post("/billing/portal", requireCompanyAuthBasic, async (req, res) => {
+  try {
+    const entityId = req.companyUser!.entityId;
+    const facility = await storage.getFacilityByLinkedEntityId(entityId);
+    if (!facility || !facility.stripeCustomerId) {
+      return res.status(400).json({ error: "No billing account found. Please subscribe first." });
+    }
+
+    const stripe = await getUncachableStripeClient();
+    const host = req.get("host");
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+    const returnUrl = `${protocol}://${host}/billing`;
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: facility.stripeCustomerId,
+      return_url: returnUrl,
+    });
+
+    res.json({ url: session.url });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to create portal session", detail: error.message });
   }
 });
 
