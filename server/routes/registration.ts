@@ -39,7 +39,7 @@ router.post("/register", async (req, res) => {
     if (!smtpConfigured) {
       // Dev mode: auto-verify and create the admin user immediately (no email required)
       const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      const baseUsername = contactEmail.toLowerCase().replace(/[^a-z0-9]/g, "_").substring(0, 28);
+      const baseUsername = contactEmail.toLowerCase();
       let adminUsername = baseUsername;
       let suffix = 2;
       while (await storage.getUserByUsername(adminUsername)) {
@@ -146,10 +146,7 @@ router.get("/verify-email", async (req, res) => {
 
     const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    const baseUsername = (facility.contactEmail || facility.name)
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "_")
-      .substring(0, 28);
+    const baseUsername = (facility.contactEmail || facility.name).toLowerCase();
     let adminUsername = baseUsername;
     let suffix = 2;
     while (await storage.getUserByUsername(adminUsername)) {
