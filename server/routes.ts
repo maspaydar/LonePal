@@ -119,7 +119,7 @@ export async function registerRoutes(
         const sub = event.data.object;
         const facility = await storage.getFacilityByStripeCustomerId(sub.customer);
         if (facility) {
-          await storage.updateFacility(facility.id, { subscriptionStatus: "paused", stripeSubscriptionId: null as any });
+          await storage.updateFacility(facility.id, { subscriptionStatus: "paused", stripeSubscriptionId: null });
           log(`Stripe subscription deleted/paused: facility=${facility.id}`, "stripe");
         }
       } else if (event.type === "customer.subscription.updated") {
