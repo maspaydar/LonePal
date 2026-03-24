@@ -611,12 +611,12 @@ export class DatabaseStorage implements IStorage {
         .map(r => this.updateResident(r.id, { unitId: roomToUnit[r.roomNumber!].id } as any))
     );
 
-    // Update sensors
+    // Update sensors — map each known ADT device ID to its known room number explicitly
     const existingSensors = await this.getSensors(entityId);
     const sensorDeviceToRoom: Record<string, string> = {
-      "ADT-HALL-001": uniqueRooms[0] ?? "",
-      "ADT-COM-001": uniqueRooms[1] ?? uniqueRooms[0] ?? "",
-      "ADT-DIN-001": uniqueRooms[2] ?? uniqueRooms[0] ?? "",
+      "ADT-HALL-001": "101",
+      "ADT-COM-001": "205",
+      "ADT-DIN-001": "310",
     };
 
     const residentByRoom = Object.fromEntries(
