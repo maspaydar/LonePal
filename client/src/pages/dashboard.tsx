@@ -94,10 +94,14 @@ export default function Dashboard() {
 
   const seedMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/seed"),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/ai-insights`] });
-      toast({ title: "Demo data loaded successfully" });
+    onSuccess: (data: any) => {
+      if (data?.alreadySeeded) {
+        toast({ title: "Demo data already loaded", description: "This facility already has residents. No changes were made." });
+      } else {
+        queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/dashboard`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/ai-insights`] });
+        toast({ title: "Demo data loaded successfully" });
+      }
     },
   });
 

@@ -1525,25 +1525,20 @@ export async function registerRoutes(
   });
 
   // --- Seed demo data ---
-  app.post("/api/seed", async (req, res) => {
-    let allEntities = await storage.getEntities();
-    let entity;
-    if (allEntities.length === 0) {
-      entity = await storage.createEntity({
-        name: "Sunrise Senior Living",
-        type: "facility",
-        address: "123 Care Avenue, Healthtown, CA 90210",
-        contactPhone: "555-0100",
-        contactEmail: "admin@sunrise-senior.com",
-      });
-    } else {
-      entity = allEntities[0];
+  app.post("/api/seed", requireCompanyAuth, async (req, res) => {
+    const entityId = req.companyUser!.entityId;
+    const entity = await storage.getEntity(entityId);
+    if (!entity) return res.status(404).json({ error: "Facility not found" });
+
+    const existingResidents = await storage.getResidents(entityId);
+    if (existingResidents.length > 0) {
+      return res.json({ success: true, alreadySeeded: true, entityId });
     }
 
-    provisionEntityFolder(entity.id);
-    await storage.seedDemoData(entity.id);
-    dailyLogger.info("seed", `Demo data seeded for entity ${entity.id}`, { entityId: entity.id });
-    res.json({ success: true, entityId: entity.id });
+    provisionEntityFolder(entityId);
+    await storage.seedDemoData(entityId);
+    dailyLogger.info("seed", `Demo data seeded for entity ${entityId}`, { entityId });
+    res.json({ success: true, alreadySeeded: false, entityId });
   });
 
   setSpeakerBroadcastFn(broadcastToClients);
