@@ -12,6 +12,7 @@ import {
   requireCompanyAuth,
   requireCompanyAuthBasic,
   requireCompanyAdmin,
+  requireCompanyAdminBasic,
 } from "../../middleware/company-auth";
 import { getUncachableStripeClient, getStripePublishableKey } from "../../stripeClient";
 
@@ -254,7 +255,7 @@ router.get("/subscription-status", requireCompanyAuthBasic, async (req, res) => 
   }
 });
 
-router.get("/billing/prices", requireCompanyAuthBasic, async (_req, res) => {
+router.get("/billing/prices", requireCompanyAdminBasic, async (_req, res) => {
   try {
     const stripe = await getUncachableStripeClient();
     const priceList = await stripe.prices.list({ active: true, expand: ["data.product"], limit: 20 });
@@ -279,7 +280,7 @@ router.get("/billing/prices", requireCompanyAuthBasic, async (_req, res) => {
   }
 });
 
-router.get("/billing/publishable-key", requireCompanyAuthBasic, async (_req, res) => {
+router.get("/billing/publishable-key", requireCompanyAdminBasic, async (_req, res) => {
   try {
     const key = await getStripePublishableKey();
     res.json({ publishableKey: key });
@@ -288,7 +289,7 @@ router.get("/billing/publishable-key", requireCompanyAuthBasic, async (_req, res
   }
 });
 
-router.post("/billing/checkout", requireCompanyAuthBasic, async (req, res) => {
+router.post("/billing/checkout", requireCompanyAdminBasic, async (req, res) => {
   try {
     const entityId = req.companyUser!.entityId;
     const facility = await storage.getFacilityByLinkedEntityId(entityId);
@@ -334,7 +335,7 @@ router.post("/billing/checkout", requireCompanyAuthBasic, async (req, res) => {
   }
 });
 
-router.post("/billing/portal", requireCompanyAuthBasic, async (req, res) => {
+router.post("/billing/portal", requireCompanyAdminBasic, async (req, res) => {
   try {
     const entityId = req.companyUser!.entityId;
     const facility = await storage.getFacilityByLinkedEntityId(entityId);

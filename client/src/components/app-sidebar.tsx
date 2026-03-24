@@ -108,7 +108,7 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
           <SidebarGroupLabel>Configuration</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {configItems.map((item) => {
+              {configItems.filter(item => item.title !== "Billing" || isAdmin).map((item) => {
                 const isActive = location === item.url;
                 return (
                   <SidebarMenuItem key={item.title}>

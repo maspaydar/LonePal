@@ -149,6 +149,15 @@ export function requireCompanyAdmin(req: Request, res: Response, next: NextFunct
   });
 }
 
+export function requireCompanyAdminBasic(req: Request, res: Response, next: NextFunction) {
+  requireCompanyAuthBasic(req, res, () => {
+    if (req.companyUser?.role !== "admin") {
+      return res.status(403).json({ error: "Admin role required" });
+    }
+    next();
+  });
+}
+
 export function requireCompanyManager(req: Request, res: Response, next: NextFunction) {
   requireCompanyAuth(req, res, () => {
     const role = req.companyUser?.role;

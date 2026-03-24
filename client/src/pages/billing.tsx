@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { getCompanyAuthHeaders } from "@/hooks/use-company-auth";
+import { getCompanyAuthHeaders, getCompanyUser } from "@/hooks/use-company-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +68,12 @@ export default function BillingPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const headers = getCompanyAuthHeaders();
+  const currentUser = getCompanyUser();
+
+  if (currentUser && currentUser.role !== "admin") {
+    setLocation("/");
+    return null;
+  }
 
   const urlParams = new URLSearchParams(window.location.search);
   const successParam = urlParams.get("success");
