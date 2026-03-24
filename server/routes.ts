@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { WebSocketServer } from "ws";
 import { setWss, broadcastToClients } from "./ws-broadcast";
 import { generateAICheckIn, clearEntityAiClient } from "./ai-engine";
-import { insertEntitySchema, insertUnitSchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema } from "@shared/schema";
+import { insertEntitySchema, insertUnitSchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema, type Facility } from "@shared/schema";
 import { log } from "./index";
 import { provisionEntityFolder } from "./tenant-folders";
 import { dailyLogger } from "./daily-logger";
@@ -126,13 +126,18 @@ export async function registerRoutes(
         const sub = event.data.object;
         const facility = await storage.getFacilityByStripeCustomerId(sub.customer);
         if (facility) {
-          const status = sub.status === "active" ? "active" : sub.status === "past_due" || sub.status === "canceled" ? "paused" : facility.subscriptionStatus;
+          const stripeStatusMap: Record<string, Facility["subscriptionStatus"] | undefined> = {
+            active: "active",
+            past_due: "paused",
+            canceled: "paused",
+          };
+          const mappedStatus: Facility["subscriptionStatus"] = stripeStatusMap[sub.status] ?? facility.subscriptionStatus;
           const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000) : undefined;
           await storage.updateFacility(facility.id, {
-            subscriptionStatus: status as any,
+            subscriptionStatus: mappedStatus,
             ...(periodEnd ? { currentPeriodEnd: periodEnd } : {}),
           });
-          log(`Stripe subscription updated: facility=${facility.id} status=${status}`, "stripe");
+          log(`Stripe subscription updated: facility=${facility.id} status=${mappedStatus}`, "stripe");
         }
       } else if (event.type === "invoice.payment_failed") {
         const invoice = event.data.object;
