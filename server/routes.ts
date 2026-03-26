@@ -1688,21 +1688,27 @@ export async function registerRoutes(
     }
   });
 
-  // --- Seed demo data ---
-  app.post("/api/seed", requireCompanyAuth, async (req, res) => {
-    const entityId = req.companyUser!.entityId;
-    const entity = await storage.getEntity(entityId);
-    if (!entity) return res.status(404).json({ error: "Facility not found" });
-
-    const existingResidents = await storage.getResidents(entityId);
-    if (existingResidents.length > 0) {
-      return res.json({ success: true, alreadySeeded: true, entityId });
+  // --- Protected demo data seed endpoint ---
+  // Requires X-Seed-Secret header matching the SEED_SECRET env var.
+  // Safe to call multiple times — always wipes and re-seeds from scratch.
+  app.post("/api/admin/seed-demo", async (req, res) => {
+    const secret = process.env.SEED_SECRET;
+    if (!secret) {
+      return res.status(503).json({ error: "Seed endpoint is not configured (SEED_SECRET not set)" });
     }
-
-    provisionEntityFolder(entityId);
-    await storage.seedDemoData(entityId);
-    dailyLogger.info("seed", `Demo data seeded for entity ${entityId}`, { entityId });
-    res.json({ success: true, alreadySeeded: false, entityId });
+    const provided = req.headers["x-seed-secret"] as string | undefined;
+    if (!provided || provided !== secret) {
+      return res.status(403).json({ error: "Invalid or missing X-Seed-Secret header" });
+    }
+    try {
+      const { runDemoSeed } = await import("./demo-seed");
+      const result = await runDemoSeed();
+      dailyLogger.info("seed", `Demo data seeded via API — entity ${result.entityId}`, result.summary);
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      console.error("[seed-demo]", err);
+      res.status(500).json({ error: "Seed failed", detail: err.message });
+    }
   });
 
   setSpeakerBroadcastFn(broadcastToClients);
