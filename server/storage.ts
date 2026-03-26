@@ -23,11 +23,12 @@ import {
   type CentralLogEntry, type InsertCentralLogEntry,
   type RecoveryScript, type InsertRecoveryScript,
   type RecoveryExecutionLog, type InsertRecoveryExecutionLog,
+  type Memory, type InsertMemory,
   users, entities, residents, sensors, esp32SensorData, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
   maintenanceLogs, userPreferences, devicePairingCodes, speakerEvents,
-  centralLogEntries, recoveryScripts, recoveryExecutionLogs,
+  centralLogEntries, recoveryScripts, recoveryExecutionLogs, memories,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql, gte, inArray } from "drizzle-orm";
@@ -180,6 +181,11 @@ export interface IStorage {
   getMessageCountsByConversations(conversationIds: number[], since?: Date): Promise<{ conversationId: number; count: number }[]>;
   getCommunityBroadcastsSince(entityId: number, since: Date): Promise<CommunityBroadcast[]>;
   fixOrphanedDemoResidents(entityId: number): Promise<void>;
+
+  createMemory(memory: InsertMemory): Promise<Memory>;
+  getMemoriesByResident(residentId: number): Promise<Memory[]>;
+  getMemoriesByTopic(residentId: number, topic: string): Promise<Memory[]>;
+  deleteMemory(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1010,6 +1016,27 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(communityBroadcasts)
       .where(and(eq(communityBroadcasts.entityId, entityId), gte(communityBroadcasts.createdAt, since)))
       .orderBy(desc(communityBroadcasts.createdAt));
+  }
+
+  async createMemory(memory: InsertMemory): Promise<Memory> {
+    const [created] = await db.insert(memories).values(memory).returning();
+    return created;
+  }
+
+  async getMemoriesByResident(residentId: number): Promise<Memory[]> {
+    return db.select().from(memories)
+      .where(eq(memories.residentId, residentId))
+      .orderBy(desc(memories.dateCaptured));
+  }
+
+  async getMemoriesByTopic(residentId: number, topic: string): Promise<Memory[]> {
+    return db.select().from(memories)
+      .where(and(eq(memories.residentId, residentId), eq(memories.topic, topic as any)))
+      .orderBy(desc(memories.dateCaptured));
+  }
+
+  async deleteMemory(id: number): Promise<void> {
+    await db.delete(memories).where(eq(memories.id, id));
   }
 }
 

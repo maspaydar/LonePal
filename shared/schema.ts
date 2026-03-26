@@ -328,6 +328,21 @@ export const insertUserPreferencesSchema = createInsertSchema(userPreferences).o
 export const insertDevicePairingCodeSchema = createInsertSchema(devicePairingCodes).omit({ id: true, createdAt: true });
 export const insertSpeakerEventSchema = createInsertSchema(speakerEvents).omit({ id: true, createdAt: true });
 
+export const memoryTopicEnum = pgEnum("memory_topic", ["childhood", "career", "family", "education", "hobbies", "travel", "relationships", "milestones", "other"]);
+
+export const memories = pgTable("memories", {
+  id: serial("id").primaryKey(),
+  residentId: integer("resident_id").notNull(),
+  entityId: integer("entity_id").notNull(),
+  topic: memoryTopicEnum("topic").notNull().default("other"),
+  content: text("content").notNull(),
+  dateCaptured: timestamp("date_captured").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertMemorySchema = createInsertSchema(memories).omit({ id: true, dateCaptured: true });
+export type Memory = typeof memories.$inferSelect;
+export type InsertMemory = z.infer<typeof insertMemorySchema>;
+
 export const logSeverityEnum = pgEnum("log_severity", ["info", "warning", "error", "critical"]);
 
 export const centralLogEntries = pgTable("central_log_entries", {
