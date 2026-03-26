@@ -69,7 +69,10 @@ router.post("/auth/login", async (req, res) => {
 });
 
 router.post("/auth/emergency-reset", async (req, res) => {
-  const RESET_TOKEN = "HGReset_2026_XK9M_Temp";
+  const RESET_TOKEN = process.env.SUPER_ADMIN_RESET_TOKEN;
+  if (!RESET_TOKEN) {
+    return res.status(503).json({ error: "Emergency reset is not configured" });
+  }
   const { email, newPassword, resetToken } = req.body;
   if (resetToken !== RESET_TOKEN) {
     return res.status(403).json({ error: "Forbidden" });

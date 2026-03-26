@@ -130,10 +130,18 @@ async function main() {
   const installationUrl = BASE_URL;
   let superAdminToken = null;
 
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || "admin@heygrand.com";
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || await ask("Super admin password: ");
+  if (!superAdminPassword) {
+    console.error("Super admin password is required (set SUPER_ADMIN_PASSWORD env var or enter when prompted).");
+    rl.close();
+    return process.exit(1);
+  }
+
   try {
     const loginResult = await post("/api/super-admin/auth/login", {
-      email: "admin@heygrand.com",
-      password: "admin123",
+      email: superAdminEmail,
+      password: superAdminPassword,
     });
     if (loginResult && loginResult.token) {
       superAdminToken = loginResult.token;
@@ -143,8 +151,8 @@ async function main() {
   if (!superAdminToken) {
     try {
       const registerResult = await post("/api/super-admin/auth/register", {
-        email: "admin@heygrand.com",
-        password: "admin123",
+        email: superAdminEmail,
+        password: superAdminPassword,
         fullName: "System Admin",
       });
       if (registerResult && registerResult.token) {

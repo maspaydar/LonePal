@@ -9,7 +9,7 @@ const ALLOWED_VPC_RANGES = [
 ];
 
 const INTERNAL_VPC_HEADER = "x-vpc-source";
-const EXPECTED_VPC_TOKEN = process.env.VPC_AUTH_TOKEN || "heyGrand-internal-vpc";
+const EXPECTED_VPC_TOKEN = process.env.VPC_AUTH_TOKEN;
 
 function ipToLong(ip: string): number {
   return ip.split(".").reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
@@ -40,7 +40,7 @@ export function vpcMaintenanceAuth(req: Request, res: Response, next: NextFuncti
   const normalizedIp = clientIp.replace("::ffff:", "");
 
   const vpcHeader = req.headers[INTERNAL_VPC_HEADER] as string | undefined;
-  if (vpcHeader === EXPECTED_VPC_TOKEN) {
+  if (EXPECTED_VPC_TOKEN && vpcHeader === EXPECTED_VPC_TOKEN) {
     return next();
   }
 

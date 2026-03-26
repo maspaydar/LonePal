@@ -6,7 +6,7 @@ import { emergencyService } from "./emergency-service";
 import fs from "fs";
 import path from "path";
 
-const ADT_WEBHOOK_SECRET = process.env.ADT_WEBHOOK_SECRET || "heyGrand-adt-default-secret";
+const ADT_WEBHOOK_SECRET = process.env.ADT_WEBHOOK_SECRET;
 
 interface AdtPayload {
   deviceId: string;
@@ -18,6 +18,11 @@ interface AdtPayload {
 }
 
 function verifyHmacSignature(payload: string, signature: string | undefined): boolean {
+  if (!ADT_WEBHOOK_SECRET) {
+    dailyLogger.warn("motion", "ADT_WEBHOOK_SECRET is not configured — skipping HMAC verification");
+    return true;
+  }
+
   if (!signature) {
     dailyLogger.warn("motion", "No HMAC signature provided in request");
     return false;
