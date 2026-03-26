@@ -351,8 +351,30 @@ export async function registerRoutes(
 
   // --- Resident routes ---
   app.get("/api/entities/:entityId/residents", requireCompanyAuth, async (req, res) => {
-    const result = await storage.getResidents(Number(req.params.entityId));
+    const entityId = Number(req.params.entityId);
+    if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+    const result = await storage.getResidents(entityId);
     res.json(result);
+  });
+
+  app.get("/api/entities/:entityId/memories", requireCompanyAuth, async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+      const residentsList = await storage.getResidents(entityId);
+      const memoriesMap: Record<number, any> = {};
+      await Promise.all(
+        residentsList.map(async (resident) => {
+          const mems = await storage.getMemoriesByResident(resident.id);
+          if (mems.length > 0) {
+            memoriesMap[resident.id] = mems[Math.floor(Math.random() * mems.length)];
+          }
+        })
+      );
+      res.json(memoriesMap);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch memories" });
+    }
   });
 
   app.get("/api/entities/:entityId/residents/:id", requireCompanyAuth, async (req, res) => {
