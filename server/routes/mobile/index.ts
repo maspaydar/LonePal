@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "../../middleware/mobile-auth";
 import { mobileLoginSchema, insertUserPreferencesSchema } from "@shared/schema";
 import { emergencyService } from "../../services/emergency-service";
-import { processResidentResponse, streamCompanionResponse, transcribeAudio, buildConversationContext } from "../../ai-engine";
+import { processResidentResponse, streamCompanionResponse, transcribeAudio, buildConversationContext, generateOnboardingResponse } from "../../ai-engine";
 import { broadcastToClients } from "../../ws-broadcast";
 import { log } from "../../index";
 import { dailyLogger } from "../../daily-logger";
@@ -552,6 +552,106 @@ router.post("/preferences", mobileAuthMiddleware, async (req, res) => {
   } catch (error: any) {
     if (error.name === "ZodError") return res.status(400).json({ error: error.errors });
     res.status(500).json({ error: "Failed to save preferences" });
+  }
+});
+
+/**
+ * GET /api/mobile/onboarding
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId and entityId from JWT.
+ * Checks whether the resident's Memory table is empty.
+ * If empty, returns the AI "Grandchild" persona's warm opening greeting.
+ * If memories already exist, returns their covered topics and completion state.
+ */
+router.get("/onboarding", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId, entityId } = req.mobileUser!;
+
+    const resident = await storage.getResident(residentId);
+    if (!resident || resident.entityId !== entityId) {
+      return res.status(404).json({ error: "Resident not found" });
+    }
+
+    const existingMemories = await storage.getMemoriesByResident(residentId);
+    const coveredTopics = [...new Set(existingMemories.map(m => m.topic))];
+    const isComplete = coveredTopics.length >= 8;
+
+    const result = await generateOnboardingResponse(resident, null, [], coveredTopics);
+
+    res.json({
+      isFirstTime: existingMemories.length === 0,
+      isComplete,
+      coveredTopics,
+      memoriesCount: existingMemories.length,
+      greeting: result.aiResponse,
+    });
+  } catch (error: any) {
+    log(`Onboarding GET error: ${error}`, "mobile-api");
+    res.status(500).json({ error: "Failed to load onboarding state" });
+  }
+});
+
+/**
+ * POST /api/mobile/onboarding
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId and entityId from JWT.
+ * Accepts the resident's conversational reply.
+ * Saves the response as a Memory entry and returns the next AI question.
+ * Body: { message: string, conversationHistory?: { role: string, content: string }[] }
+ */
+router.post("/onboarding", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId, entityId } = req.mobileUser!;
+
+    const resident = await storage.getResident(residentId);
+    if (!resident || resident.entityId !== entityId) {
+      return res.status(404).json({ error: "Resident not found" });
+    }
+
+    const { message, conversationHistory = [] } = req.body;
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    const existingMemories = await storage.getMemoriesByResident(residentId);
+    const coveredTopics = [...new Set(existingMemories.map(m => m.topic))];
+
+    const result = await generateOnboardingResponse(
+      resident,
+      message.trim(),
+      conversationHistory,
+      coveredTopics
+    );
+
+    if (result.memorySummary && result.memoryTopic) {
+      await storage.createMemory({
+        residentId,
+        entityId,
+        topic: result.memoryTopic as any,
+        content: result.memorySummary,
+      });
+    }
+
+    const updatedMemories = await storage.getMemoriesByResident(residentId);
+    const updatedTopics = [...new Set(updatedMemories.map(m => m.topic))];
+
+    dailyLogger.info("mobile", `Onboarding memory saved for resident ${residentId}`, {
+      residentId,
+      topic: result.memoryTopic,
+      isComplete: result.isComplete,
+    });
+
+    res.json({
+      aiResponse: result.aiResponse,
+      memorySaved: !!(result.memorySummary && result.memoryTopic),
+      memoryTopic: result.memoryTopic,
+      isComplete: result.isComplete,
+      coveredTopics: updatedTopics,
+      memoriesCount: updatedMemories.length,
+    });
+  } catch (error: any) {
+    log(`Onboarding POST error: ${error}`, "mobile-api");
+    res.status(500).json({ error: "Failed to process onboarding message" });
   }
 });
 

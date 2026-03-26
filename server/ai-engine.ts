@@ -467,3 +467,134 @@ function getPlaceholderResponse(resident: Resident, scenarioType: string, escala
       return `Hello ${name}, how are you doing today?`;
   }
 }
+
+const ONBOARDING_TOPICS_ORDER = [
+  "childhood",
+  "family",
+  "career",
+  "education",
+  "hobbies",
+  "travel",
+  "relationships",
+  "milestones",
+];
+
+const TOPIC_OPENERS: Record<string, string> = {
+  childhood: "Tell me about where you grew up. What was your hometown like when you were a child?",
+  family:    "I'd love to hear about your family. Who were some of the most important people in your life growing up?",
+  career:    "What kind of work did you do over the years? Was there a job or role you felt especially proud of?",
+  education: "Did you have any teachers or schools that really shaped who you are?",
+  hobbies:   "What did you love to do in your free time? Any hobbies or passions you kept coming back to?",
+  travel:    "Have you traveled anywhere that left a big impression on you — somewhere that really stuck with you?",
+  relationships: "Are there friendships or relationships from your past that you think about fondly?",
+  milestones: "What are some of the moments in your life you're most proud of — big or small?",
+};
+
+function getNextOnboardingTopic(coveredTopics: string[]): string | null {
+  for (const topic of ONBOARDING_TOPICS_ORDER) {
+    if (!coveredTopics.includes(topic)) return topic;
+  }
+  return null;
+}
+
+export async function generateOnboardingResponse(
+  resident: Resident,
+  userMessage: string | null,
+  conversationHistory: { role: string; content: string }[],
+  coveredTopics: string[]
+): Promise<{ aiResponse: string; memoryTopic: string | null; memorySummary: string | null; isComplete: boolean }> {
+  const name = resident.preferredName || resident.firstName;
+  const aiClient = await getAIForEntity(resident.entityId);
+
+  const nextTopic = getNextOnboardingTopic(coveredTopics);
+  const isComplete = !nextTopic;
+
+  if (!userMessage) {
+    const opener = nextTopic ? TOPIC_OPENERS[nextTopic] : `Thank you for sharing so much with me, ${name}. I treasure every story you've told me.`;
+    return { aiResponse: opener, memoryTopic: null, memorySummary: null, isComplete };
+  }
+
+  if (!aiClient) {
+    const fallbackReply = nextTopic
+      ? `Thank you for sharing that, ${name}. ${TOPIC_OPENERS[nextTopic]}`
+      : `That means so much to hear, ${name}. Thank you for trusting me with your memories.`;
+    return {
+      aiResponse: fallbackReply,
+      memoryTopic: coveredTopics.length > 0 ? null : "other",
+      memorySummary: userMessage,
+      isComplete,
+    };
+  }
+
+  const systemInstruction = `You are playing the warm, loving role of a grandchild speaking with your grandparent, ${name}.
+Your goal is to gently draw out their life memories through natural, caring conversation.
+You have a patient, curious, and affectionate personality. You are never clinical or formal.
+You speak simply and warmly — never rush ${name}, and always validate what they share.
+Do not mention technology, AI, or that you are a computer program.`;
+
+  const analysisPrompt = `${systemInstruction}
+
+${name} just said: "${userMessage}"
+
+Topics already covered in this conversation: ${coveredTopics.length > 0 ? coveredTopics.join(", ") : "none yet"}.
+${nextTopic ? `The next topic to gently explore is: "${nextTopic}".` : "All topics have been covered."}
+
+Please do two things:
+1. Respond warmly to what ${name} just shared (2-3 sentences). Acknowledge their story with genuine curiosity.
+${nextTopic ? `2. Then naturally transition by asking the opener question for "${nextTopic}" (one gentle question).` : "2. Thank them warmly for sharing all their wonderful memories — this is the end of onboarding."}
+
+Also, in a separate JSON block at the very end of your response (after "---JSON---"), output exactly this structure:
+{
+  "memorySummary": "<a 1-2 sentence summary of what ${name} shared>",
+  "memoryTopic": "${nextTopic ? coveredTopics[coveredTopics.length] || "other" : "other"}"
+}
+
+The memoryTopic must be one of: childhood, career, family, education, hobbies, travel, relationships, milestones, other.
+The memoryTopic should describe the content of what ${name} JUST said (not the next question).`;
+
+  try {
+    const contents = conversationHistory.map(m => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+    contents.push({ role: "user", parts: [{ text: userMessage }] });
+
+    const response = await aiClient.models.generateContent({
+      model: getModelName(),
+      contents,
+      config: {
+        systemInstruction: analysisPrompt,
+        maxOutputTokens: 400,
+        temperature: 0.75,
+      },
+    });
+
+    const raw = response.text || "";
+    const jsonSplit = raw.split("---JSON---");
+    const aiResponse = jsonSplit[0].trim();
+    let memoryTopic: string | null = null;
+    let memorySummary: string | null = null;
+
+    if (jsonSplit[1]) {
+      try {
+        const parsed = JSON.parse(jsonSplit[1].trim());
+        memoryTopic = parsed.memoryTopic || "other";
+        memorySummary = parsed.memorySummary || userMessage;
+      } catch {
+        memoryTopic = "other";
+        memorySummary = userMessage;
+      }
+    } else {
+      memoryTopic = "other";
+      memorySummary = userMessage;
+    }
+
+    return { aiResponse, memoryTopic, memorySummary, isComplete };
+  } catch (error) {
+    log(`Onboarding AI error: ${error}`, "ai-engine");
+    const fallback = nextTopic
+      ? `That's really lovely, ${name}. ${TOPIC_OPENERS[nextTopic]}`
+      : `I'm so glad you shared that with me, ${name}. Thank you.`;
+    return { aiResponse: fallback, memoryTopic: "other", memorySummary: userMessage, isComplete };
+  }
+}
