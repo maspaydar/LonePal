@@ -21,6 +21,7 @@ import { superAdminAuthMiddleware } from "./middleware/super-admin-auth";
 import superAdminRouter from "./routes/super-admin/index";
 import maintenanceRouter from "./routes/maintenance";
 import esp32Router from "./routes/iot/index";
+import sensorIngestRouter from "./routes/iot/sensor-ingest";
 import companyRouter from "./routes/company/index";
 import mobileRouter from "./routes/mobile/index";
 import registrationRouter from "./routes/registration";
@@ -80,6 +81,7 @@ export async function registerRoutes(
   app.use("/api/super-admin", superAdminRouter);
   app.use("/api/maintenance", maintenanceRouter);
   app.use("/api/esp32", esp32Router);
+  app.use("/api/v1/sensor-ingest", sensorIngestRouter);
   app.use("/api/company", companyRouter);
   app.use("/api/mobile", mobileRouter);
   app.use("/api", registrationRouter);
