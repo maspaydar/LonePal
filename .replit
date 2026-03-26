@@ -44,4 +44,3 @@ integrations = ["javascript_database:1.0.0", "javascript_gemini:1.0.0", "javascr
 [userenv]
 
 [userenv.shared]
-SEED_SECRET = "89c81514c0368cfc9cc02cef03d3b6e396a0ec62062df9fec3d824e0949aa97d"
