@@ -250,6 +250,54 @@ export function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+export interface DeviceSettingsValues {
+  sensitivity: number;
+  detectionDistance: number;
+  aiCheckInFrequency: number;
+  activeHoursStart: string;
+  activeHoursEnd: string;
+}
+
+export interface DeviceSettingsResponse {
+  unitId: number;
+  unitIdentifier: string;
+  deviceMac: string | null;
+  device: {
+    connected: boolean;
+    healthy: boolean;
+    lastHeartbeat: string | null;
+    firmwareVersion: string | null;
+    signalStrength: number | null;
+  };
+  settings: DeviceSettingsValues;
+  defaults: DeviceSettingsValues;
+}
+
+export async function fetchDeviceSettings(): Promise<DeviceSettingsResponse> {
+  const res = await authFetch("/api/mobile/device-settings");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to load device settings" }));
+    throw new Error(err.error || "Failed to load device settings");
+  }
+  return res.json();
+}
+
+export async function saveDeviceSettings(values: DeviceSettingsValues): Promise<{
+  settings: DeviceSettingsValues;
+  pushedToDevice: boolean;
+  deviceMac: string | null;
+}> {
+  const res = await authFetch("/api/mobile/device-settings", {
+    method: "PUT",
+    body: JSON.stringify(values),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to save settings" }));
+    throw new Error(err.error || "Failed to save settings");
+  }
+  return res.json();
+}
+
 export function formatRelativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   const now = Date.now();

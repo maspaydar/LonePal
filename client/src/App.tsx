@@ -39,6 +39,7 @@ import ResidentWaitingPage from "@/pages/resident/waiting";
 import ResidentHomePage from "@/pages/resident/home";
 import ResidentChatPage from "@/pages/resident/chat";
 import ResidentAnnouncementsPage from "@/pages/resident/announcements";
+import ResidentDeviceSettingsPage from "@/pages/resident/device-settings";
 import { isResidentAuthenticated } from "@/lib/resident-auth";
 
 interface SubscriptionStatus {
@@ -303,6 +304,11 @@ function App() {
             <Route path="/resident/announcements">
               <ResidentAuthGuard>
                 <ResidentAnnouncementsPage />
+              </ResidentAuthGuard>
+            </Route>
+            <Route path="/resident/device-settings">
+              <ResidentAuthGuard>
+                <ResidentDeviceSettingsPage />
               </ResidentAuthGuard>
             </Route>
             <Route>

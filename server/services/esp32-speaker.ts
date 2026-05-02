@@ -43,15 +43,142 @@ export function registerEsp32Device(deviceMac: string, ws: WebSocket) {
   ws.on("message", async (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
-      if (msg.type === "voice_response") {
+      const type = String(msg.type || "").toLowerCase();
+      if (type === "voice_response") {
         await handleEsp32VoiceResponse(deviceMac, msg.text || "");
-      } else if (msg.type === "heartbeat") {
+      } else if (type === "heartbeat" || type === "device_status") {
         recordEsp32Success(deviceMac);
+        await handleEsp32DeviceStatus(deviceMac, msg);
+      } else if (type === "sensor_data") {
+        recordEsp32Success(deviceMac);
+        await handleEsp32SensorData(deviceMac, msg);
+      } else if (type === "diagnostic_response") {
+        recordEsp32Success(deviceMac);
+        log(`ESP32 diagnostic response from ${deviceMac}: ${JSON.stringify(msg).slice(0, 200)}`, "esp32-speaker");
+      } else {
+        log(`ESP32 unknown message type "${msg.type}" from ${deviceMac}`, "esp32-speaker");
       }
     } catch (err) {
       log(`ESP32 message parse error from ${deviceMac}: ${err}`, "esp32-speaker");
     }
   });
+}
+
+async function handleEsp32SensorData(deviceMac: string, msg: any) {
+  try {
+    const sensor = await storage.getSensorByEsp32Mac(deviceMac);
+    const unit = await storage.getUnitByEsp32Mac(deviceMac);
+    if (!unit && !sensor) {
+      log(`ESP32 SENSOR_DATA from unregistered MAC ${deviceMac}`, "esp32-speaker");
+      return;
+    }
+    const entityId = sensor?.entityId ?? unit?.entityId;
+    if (!entityId) return;
+    if (sensor && unit && sensor.entityId !== unit.entityId) {
+      dailyLogger.warn("esp32-speaker", `WS SENSOR_DATA cross-entity mismatch for ${deviceMac}`);
+      return;
+    }
+    const residentId = sensor?.residentId
+      ?? (unit ? (await storage.getResidentByUnit(unit.id))?.id : undefined)
+      ?? null;
+    await storage.createEsp32SensorData({
+      entityId,
+      sensorId: sensor?.id ?? null,
+      unitId: unit?.id ?? null,
+      residentId: residentId,
+      deviceMac,
+      presenceDetected: !!msg.presenceDetected,
+      distance: typeof msg.distance === "number" ? msg.distance : null,
+      movementEnergy: typeof msg.movementEnergy === "number" ? msg.movementEnergy : null,
+      stationaryEnergy: typeof msg.stationaryEnergy === "number" ? msg.stationaryEnergy : null,
+      isStationary: typeof msg.isStationary === "boolean" ? msg.isStationary : null,
+      rawPayload: msg,
+    });
+    if (msg.presenceDetected && residentId) {
+      await storage.updateResidentStatus(residentId, "safe", new Date());
+    }
+  } catch (err) {
+    log(`ESP32 SENSOR_DATA handler error for ${deviceMac}: ${err}`, "esp32-speaker");
+  }
+}
+
+async function handleEsp32DeviceStatus(deviceMac: string, msg: any) {
+  try {
+    const unit = await storage.getUnitByEsp32Mac(deviceMac);
+    if (!unit) return;
+    const updateData: Record<string, any> = { esp32LastHeartbeat: new Date() };
+    if (msg.firmwareVersion) updateData.esp32FirmwareVersion = msg.firmwareVersion;
+    if (typeof msg.signalStrength === "number") updateData.esp32SignalStrength = msg.signalStrength;
+    if (msg.ipAddress) updateData.esp32IpAddress = msg.ipAddress;
+    await storage.updateUnit(unit.id, updateData);
+  } catch (err) {
+    log(`ESP32 DEVICE_STATUS handler error for ${deviceMac}: ${err}`, "esp32-speaker");
+  }
+}
+
+/**
+ * Push a CONFIG_UPDATE message to a specific ESP32 device over its WebSocket.
+ * The device should respond by re-fetching `/api/devices/:mac/config` and
+ * applying the new settings dynamically (no re-flash required).
+ */
+export function pushEsp32ConfigUpdate(deviceMac: string, settings: Record<string, any>): boolean {
+  const ws = connectedEsp32Devices.get(deviceMac);
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    log(`ESP32 ${deviceMac} not connected — CONFIG_UPDATE not sent`, "esp32-speaker");
+    return false;
+  }
+  try {
+    ws.send(JSON.stringify({
+      type: "CONFIG_UPDATE",
+      deviceMac,
+      settings,
+      timestamp: Date.now(),
+    }));
+    recordEsp32Success(deviceMac);
+    log(`ESP32 CONFIG_UPDATE -> ${deviceMac}`, "esp32-speaker");
+    return true;
+  } catch (e) {
+    recordEsp32Failure(deviceMac);
+    log(`ESP32 ${deviceMac} CONFIG_UPDATE send failed: ${e}`, "esp32-speaker");
+    return false;
+  }
+}
+
+/**
+ * Push an HMAC-signed remote diagnostic command to a device.
+ * Device firmware verifies the signature using DEVICE_HMAC_SECRET before executing.
+ */
+export function pushEsp32DiagnosticCommand(
+  deviceMac: string,
+  command: { action: string; args?: Record<string, any> },
+  hmacSecret: string,
+): boolean {
+  const ws = connectedEsp32Devices.get(deviceMac);
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    log(`ESP32 ${deviceMac} not connected — DIAGNOSTIC_COMMAND not sent`, "esp32-speaker");
+    return false;
+  }
+  try {
+    const crypto = require("crypto");
+    const issuedAt = Date.now();
+    const body = JSON.stringify({ deviceMac, command, issuedAt });
+    const signature = "sha256=" + crypto
+      .createHmac("sha256", hmacSecret)
+      .update(body)
+      .digest("hex");
+    ws.send(JSON.stringify({
+      type: "DIAGNOSTIC_COMMAND",
+      payload: body,
+      signature,
+    }));
+    recordEsp32Success(deviceMac);
+    log(`ESP32 DIAGNOSTIC_COMMAND -> ${deviceMac}: ${command.action}`, "esp32-speaker");
+    return true;
+  } catch (e) {
+    recordEsp32Failure(deviceMac);
+    log(`ESP32 ${deviceMac} DIAGNOSTIC_COMMAND send failed: ${e}`, "esp32-speaker");
+    return false;
+  }
 }
 
 function isEsp32Connected(deviceMac: string): boolean {

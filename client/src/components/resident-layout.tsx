@@ -1,12 +1,12 @@
 import { Link, useLocation } from "wouter";
-import { Home, MessageCircle, Megaphone, LogOut } from "lucide-react";
+import { Home, MessageCircle, Megaphone, Settings, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { residentLogout, getStoredResident } from "@/lib/resident-auth";
 import type { ReactNode } from "react";
 
 interface ResidentLayoutProps {
   children: ReactNode;
-  active?: "home" | "chat" | "announcements";
+  active?: "home" | "chat" | "announcements" | "settings";
   hideNav?: boolean;
 }
 
@@ -59,7 +59,7 @@ export function ResidentLayout({ children, active, hideNav }: ResidentLayoutProp
           className="border-t bg-white dark:bg-slate-900 shadow-lg"
           data-testid="nav-resident-bottom"
         >
-          <div className="grid grid-cols-3 max-w-2xl mx-auto">
+          <div className="grid grid-cols-4 max-w-2xl mx-auto">
             <NavItem
               to="/resident/home"
               icon={<Home className="w-7 h-7" />}
@@ -80,6 +80,13 @@ export function ResidentLayout({ children, active, hideNav }: ResidentLayoutProp
               label="Updates"
               active={active === "announcements"}
               testId="nav-link-announcements"
+            />
+            <NavItem
+              to="/resident/device-settings"
+              icon={<Settings className="w-7 h-7" />}
+              label="Device"
+              active={active === "settings"}
+              testId="nav-link-settings"
             />
           </div>
         </nav>

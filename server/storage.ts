@@ -18,6 +18,7 @@ import {
   type FacilityHealthLog, type InsertFacilityHealthLog,
   type MaintenanceLog, type InsertMaintenanceLog,
   type UserPreferences, type InsertUserPreferences,
+  type DeviceSettings, type InsertDeviceSettings,
   type DevicePairingCode, type InsertDevicePairingCode,
   type SpeakerEvent, type InsertSpeakerEvent,
   type CentralLogEntry, type InsertCentralLogEntry,
@@ -27,7 +28,7 @@ import {
   users, entities, residents, sensors, esp32SensorData, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
-  maintenanceLogs, userPreferences, devicePairingCodes, speakerEvents,
+  maintenanceLogs, userPreferences, deviceSettings, devicePairingCodes, speakerEvents,
   centralLogEntries, recoveryScripts, recoveryExecutionLogs, memories,
 } from "@shared/schema";
 import { db } from "./db";
@@ -148,6 +149,10 @@ export interface IStorage {
 
   getUserPreferences(residentId: number): Promise<UserPreferences | undefined>;
   upsertUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences>;
+
+  getDeviceSettingsByUnit(unitId: number): Promise<DeviceSettings | undefined>;
+  getDeviceSettingsByMac(deviceMac: string): Promise<DeviceSettings | undefined>;
+  upsertDeviceSettings(settings: InsertDeviceSettings): Promise<DeviceSettings>;
 
   /** @deprecated Pairing codes removed — mobile login returns unit data directly */
   createDevicePairingCode(code: InsertDevicePairingCode): Promise<DevicePairingCode>;
@@ -833,6 +838,30 @@ export class DatabaseStorage implements IStorage {
       return updated;
     }
     const [created] = await db.insert(userPreferences).values(prefs).returning();
+    return created;
+  }
+
+  async getDeviceSettingsByUnit(unitId: number): Promise<DeviceSettings | undefined> {
+    const [settings] = await db.select().from(deviceSettings).where(eq(deviceSettings.unitId, unitId));
+    return settings;
+  }
+
+  async getDeviceSettingsByMac(deviceMac: string): Promise<DeviceSettings | undefined> {
+    const unit = await this.getUnitByEsp32Mac(deviceMac);
+    if (!unit) return undefined;
+    return this.getDeviceSettingsByUnit(unit.id);
+  }
+
+  async upsertDeviceSettings(settings: InsertDeviceSettings): Promise<DeviceSettings> {
+    const existing = await this.getDeviceSettingsByUnit(settings.unitId);
+    if (existing) {
+      const [updated] = await db.update(deviceSettings)
+        .set({ ...settings, updatedAt: new Date() })
+        .where(eq(deviceSettings.unitId, settings.unitId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(deviceSettings).values(settings).returning();
     return created;
   }
 

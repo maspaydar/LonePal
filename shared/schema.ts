@@ -325,6 +325,21 @@ export const speakerEvents = pgTable("speaker_events", {
 });
 
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({ id: true, updatedAt: true });
+
+export const deviceSettings = pgTable("device_settings", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").notNull(),
+  unitId: integer("unit_id").notNull().unique(),
+  deviceMac: text("device_mac"),
+  sensitivity: integer("sensitivity").notNull().default(50),
+  detectionDistance: integer("detection_distance").notNull().default(400),
+  aiCheckInFrequency: integer("ai_check_in_frequency").notNull().default(60),
+  activeHoursStart: text("active_hours_start").notNull().default("07:00"),
+  activeHoursEnd: text("active_hours_end").notNull().default("22:00"),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertDeviceSettingsSchema = createInsertSchema(deviceSettings).omit({ id: true, updatedAt: true });
 export const insertDevicePairingCodeSchema = createInsertSchema(devicePairingCodes).omit({ id: true, createdAt: true });
 export const insertSpeakerEventSchema = createInsertSchema(speakerEvents).omit({ id: true, createdAt: true });
 
@@ -458,6 +473,8 @@ export type MaintenanceLog = typeof maintenanceLogs.$inferSelect;
 export type InsertMaintenanceLog = z.infer<typeof insertMaintenanceLogSchema>;
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
+export type DeviceSettings = typeof deviceSettings.$inferSelect;
+export type InsertDeviceSettings = z.infer<typeof insertDeviceSettingsSchema>;
 export type DevicePairingCode = typeof devicePairingCodes.$inferSelect;
 export type InsertDevicePairingCode = z.infer<typeof insertDevicePairingCodeSchema>;
 export type SpeakerEvent = typeof speakerEvents.$inferSelect;
