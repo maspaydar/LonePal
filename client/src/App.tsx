@@ -34,6 +34,12 @@ import RegisterPage from "@/pages/register";
 import VerifyEmailPage from "@/pages/verify-email";
 import BillingPage from "@/pages/billing";
 import ReportsPage from "@/pages/reports";
+import ResidentLoginPage from "@/pages/resident/login";
+import ResidentWaitingPage from "@/pages/resident/waiting";
+import ResidentHomePage from "@/pages/resident/home";
+import ResidentChatPage from "@/pages/resident/chat";
+import ResidentAnnouncementsPage from "@/pages/resident/announcements";
+import { isResidentAuthenticated } from "@/lib/resident-auth";
 
 interface SubscriptionStatus {
   status: string | null;
@@ -108,6 +114,13 @@ function CompanyAuthGuard({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useCompanyAuth();
   if (!isAuthenticated()) {
     return <Redirect to="/login" />;
+  }
+  return <>{children}</>;
+}
+
+function ResidentAuthGuard({ children }: { children: ReactNode }) {
+  if (!isResidentAuthenticated()) {
+    return <Redirect to="/resident/login" />;
   }
   return <>{children}</>;
 }
@@ -270,6 +283,28 @@ function App() {
             <Route path="/login" component={LoginPage} />
             <Route path="/register" component={RegisterPage} />
             <Route path="/verify-email" component={VerifyEmailPage} />
+            <Route path="/resident" component={ResidentLoginPage} />
+            <Route path="/resident/login" component={ResidentLoginPage} />
+            <Route path="/resident/waiting">
+              <ResidentAuthGuard>
+                <ResidentWaitingPage />
+              </ResidentAuthGuard>
+            </Route>
+            <Route path="/resident/home">
+              <ResidentAuthGuard>
+                <ResidentHomePage />
+              </ResidentAuthGuard>
+            </Route>
+            <Route path="/resident/chat">
+              <ResidentAuthGuard>
+                <ResidentChatPage />
+              </ResidentAuthGuard>
+            </Route>
+            <Route path="/resident/announcements">
+              <ResidentAuthGuard>
+                <ResidentAnnouncementsPage />
+              </ResidentAuthGuard>
+            </Route>
             <Route>
               <CompanyAuthGuard>
                 <AppLayout />
