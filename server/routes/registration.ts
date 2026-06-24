@@ -2,12 +2,130 @@ import { Router } from "express";
 import { storage } from "../storage";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { facilityRegistrationSchema } from "@shared/schema";
+import { facilityRegistrationSchema, familyRegistrationSchema } from "@shared/schema";
 import { sendVerificationEmail, sendWelcomeAndCredentialsEmail, sendSuperAdminNewRegistrationEmail } from "../services/email-service";
 import { log } from "../index";
 import { provisionEntityFolder } from "../tenant-folders";
 
 const router = Router();
+
+interface RegistrationInput {
+  accountName: string;
+  accountType: "facility" | "family";
+  contactName: string;
+  contactEmail: string;
+  contactPhone?: string;
+  password: string;
+}
+
+type RegistrationResult =
+  | { conflict: true }
+  | {
+      conflict: false;
+      devAutoVerified: boolean;
+      facilityId: string;
+      loginUsername?: string;
+      trialEndsAt?: Date;
+    };
+
+/**
+ * Shared account-provisioning logic for both facility operators and family
+ * members. A "family" account is a single-resident household entity; the only
+ * differences from a facility are the entity type and the human-facing copy.
+ */
+async function provisionAccount(input: RegistrationInput): Promise<RegistrationResult> {
+  const { accountName, accountType, contactName, contactEmail, contactPhone, password } = input;
+
+  const existing = await storage.getFacilityByContactEmail(contactEmail);
+  if (existing) {
+    if (existing.subscriptionStatus === "pending_verification") {
+      // Allow re-registration for unverified accounts — delete the stuck one and start fresh
+      await storage.deleteFacility(existing.id);
+    } else {
+      return { conflict: true };
+    }
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 12);
+  const verificationToken = crypto.randomBytes(32).toString("hex");
+  const verificationTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  const facilityId = accountName.toLowerCase().replace(/[^a-z0-9]/g, "-").substring(0, 30) + "-" + crypto.randomBytes(4).toString("hex");
+
+  const adminFallbackName = accountType === "family" ? `${accountName} Family` : `${accountName} Admin`;
+
+  const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+
+  if (!smtpConfigured) {
+    // Dev mode: auto-verify and create the admin user immediately (no email required)
+    const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const baseUsername = contactEmail.toLowerCase();
+    let adminUsername = baseUsername;
+    let suffix = 2;
+    while (await storage.getUserByUsername(adminUsername)) {
+      adminUsername = `${baseUsername}_${suffix++}`;
+    }
+
+    const entity = await storage.createEntity({
+      name: accountName,
+      type: accountType,
+      contactEmail,
+      contactPhone: contactPhone || undefined,
+      isActive: true,
+    });
+    provisionEntityFolder(entity.id);
+
+    await storage.createUser({
+      username: adminUsername,
+      password: hashedPassword,
+      fullName: contactName || adminFallbackName,
+      role: "admin",
+      entityId: entity.id,
+    });
+
+    await storage.createFacility({
+      facilityId,
+      name: accountName,
+      accountType,
+      contactName,
+      contactEmail,
+      contactPhone: contactPhone || null,
+      password: null,
+      emailVerified: true,
+      verificationToken: null,
+      verificationTokenExpiresAt: null,
+      subscriptionStatus: "trial",
+      trialEndsAt,
+      status: "active",
+      linkedEntityId: entity.id,
+    });
+
+    log(`New ${accountType} registered (dev auto-verified): ${accountName} (${contactEmail}) user=${adminUsername}`, "registration");
+
+    return { conflict: false, devAutoVerified: true, facilityId, loginUsername: adminUsername, trialEndsAt };
+  }
+
+  const facility = await storage.createFacility({
+    facilityId,
+    name: accountName,
+    accountType,
+    contactName,
+    contactEmail,
+    contactPhone: contactPhone || null,
+    password: hashedPassword,
+    emailVerified: false,
+    verificationToken,
+    verificationTokenExpiresAt,
+    subscriptionStatus: "pending_verification",
+    status: "onboarding",
+  });
+
+  await sendVerificationEmail(contactEmail, contactName, verificationToken);
+
+  log(`New ${accountType} registration: ${accountName} (${contactEmail})`, "registration");
+
+  return { conflict: false, devAutoVerified: false, facilityId: facility.facilityId };
+}
 
 router.post("/register", async (req, res) => {
   try {
@@ -18,104 +136,80 @@ router.post("/register", async (req, res) => {
 
     const { facilityName, contactName, contactEmail, contactPhone, password } = parsed.data;
 
-    const existing = await storage.getFacilityByContactEmail(contactEmail);
-    if (existing) {
-      if (existing.subscriptionStatus === "pending_verification") {
-        // Allow re-registration for unverified accounts — delete the stuck one and start fresh
-        await storage.deleteFacility(existing.id);
-      } else {
-        return res.status(409).json({ error: "An account with this email already exists." });
-      }
+    const result = await provisionAccount({
+      accountName: facilityName,
+      accountType: "facility",
+      contactName,
+      contactEmail,
+      contactPhone,
+      password,
+    });
+
+    if (result.conflict) {
+      return res.status(409).json({ error: "An account with this email already exists." });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
-    const verificationToken = crypto.randomBytes(32).toString("hex");
-    const verificationTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    const facilityId = facilityName.toLowerCase().replace(/[^a-z0-9]/g, "-").substring(0, 30) + "-" + crypto.randomBytes(4).toString("hex");
-
-    const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-
-    if (!smtpConfigured) {
-      // Dev mode: auto-verify and create the admin user immediately (no email required)
-      const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      const baseUsername = contactEmail.toLowerCase();
-      let adminUsername = baseUsername;
-      let suffix = 2;
-      while (await storage.getUserByUsername(adminUsername)) {
-        adminUsername = `${baseUsername}_${suffix++}`;
-      }
-
-      const entity = await storage.createEntity({
-        name: facilityName,
-        type: "facility",
-        contactEmail,
-        contactPhone: contactPhone || undefined,
-        isActive: true,
-      });
-      provisionEntityFolder(entity.id);
-
-      await storage.createUser({
-        username: adminUsername,
-        password: hashedPassword,
-        fullName: contactName || `${facilityName} Admin`,
-        role: "admin",
-        entityId: entity.id,
-      });
-
-      await storage.createFacility({
-        facilityId,
-        name: facilityName,
-        contactName,
-        contactEmail,
-        contactPhone: contactPhone || null,
-        password: null,
-        emailVerified: true,
-        verificationToken: null,
-        verificationTokenExpiresAt: null,
-        subscriptionStatus: "trial",
-        trialEndsAt,
-        status: "active",
-        linkedEntityId: entity.id,
-      });
-
-      log(`New facility registered (dev auto-verified): ${facilityName} (${contactEmail}) user=${adminUsername}`, "registration");
-
+    if (result.devAutoVerified) {
       return res.status(201).json({
         success: true,
         devAutoVerified: true,
         message: "Registration successful! (Dev mode: email verification skipped)",
-        loginUsername: adminUsername,
-        trialEndsAt: trialEndsAt.toISOString(),
+        loginUsername: result.loginUsername,
+        trialEndsAt: result.trialEndsAt!.toISOString(),
       });
     }
-
-    const facility = await storage.createFacility({
-      facilityId,
-      name: facilityName,
-      contactName,
-      contactEmail,
-      contactPhone: contactPhone || null,
-      password: hashedPassword,
-      emailVerified: false,
-      verificationToken,
-      verificationTokenExpiresAt,
-      subscriptionStatus: "pending_verification",
-      status: "onboarding",
-    });
-
-    await sendVerificationEmail(contactEmail, contactName, verificationToken);
-
-    log(`New facility registration: ${facilityName} (${contactEmail})`, "registration");
 
     res.status(201).json({
       success: true,
       message: "Registration successful! Please check your email to verify your account.",
-      facilityId: facility.facilityId,
+      facilityId: result.facilityId,
     });
   } catch (err: any) {
     log(`Registration error: ${err.message}`, "registration");
     res.status(500).json({ error: "Registration failed. Please try again." });
+  }
+});
+
+router.post("/register/family", async (req, res) => {
+  try {
+    const parsed = familyRegistrationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+    }
+
+    const { contactName, lovedOneName, contactEmail, contactPhone, password } = parsed.data;
+
+    const result = await provisionAccount({
+      accountName: lovedOneName,
+      accountType: "family",
+      contactName,
+      contactEmail,
+      contactPhone,
+      password,
+    });
+
+    if (result.conflict) {
+      return res.status(409).json({ error: "An account with this email already exists." });
+    }
+
+    if (result.devAutoVerified) {
+      return res.status(201).json({
+        success: true,
+        devAutoVerified: true,
+        message: "Sign-up successful! (Dev mode: email verification skipped)",
+        loginUsername: result.loginUsername,
+        trialEndsAt: result.trialEndsAt!.toISOString(),
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: "Sign-up successful! Please check your email to verify your account.",
+      facilityId: result.facilityId,
+    });
+  } catch (err: any) {
+    log(`Family registration error: ${err.message}`, "registration");
+    res.status(500).json({ error: "Sign-up failed. Please try again." });
   }
 });
 
@@ -155,7 +249,7 @@ router.get("/verify-email", async (req, res) => {
 
     const entity = await storage.createEntity({
       name: facility.name,
-      type: "facility",
+      type: facility.accountType || "facility",
       address: facility.address || undefined,
       contactPhone: facility.contactPhone || undefined,
       contactEmail: facility.contactEmail || undefined,
@@ -163,10 +257,12 @@ router.get("/verify-email", async (req, res) => {
     });
     provisionEntityFolder(entity.id);
 
+    const adminFallbackName = facility.accountType === "family" ? `${facility.name} Family` : `${facility.name} Admin`;
+
     await storage.createUser({
       username: adminUsername,
       password: facility.password!,
-      fullName: facility.contactName || `${facility.name} Admin`,
+      fullName: facility.contactName || adminFallbackName,
       role: "admin",
       entityId: entity.id,
     });

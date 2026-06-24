@@ -227,6 +227,7 @@ export const facilities = pgTable("facilities", {
   id: serial("id").primaryKey(),
   facilityId: text("facility_id").notNull().unique(),
   name: text("name").notNull(),
+  accountType: text("account_type").notNull().default("facility"),
   address: text("address"),
   contactName: text("contact_name"),
   contactEmail: text("contact_email"),
@@ -401,6 +402,14 @@ export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: tr
 export const facilityRegistrationSchema = z.object({
   facilityName: z.string().min(2, "Facility name must be at least 2 characters"),
   contactName: z.string().min(2, "Contact name must be at least 2 characters"),
+  contactEmail: z.string().email("Valid email required"),
+  contactPhone: z.string().optional(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export const familyRegistrationSchema = z.object({
+  contactName: z.string().min(2, "Your name must be at least 2 characters"),
+  lovedOneName: z.string().min(2, "Your loved one's name must be at least 2 characters"),
   contactEmail: z.string().email("Valid email required"),
   contactPhone: z.string().optional(),
   password: z.string().min(8, "Password must be at least 8 characters"),

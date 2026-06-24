@@ -45,7 +45,7 @@ const HERO: Record<Audience, HeroContent> = {
     headline: "Be there, even when you can't. Daily check-ins and instant alerts for the people you love.",
     subcopy:
       "HeyGrand keeps your parent or grandparent company with warm daily conversations, and alerts you the moment something seems off — so you always know they're okay.",
-    primary: { label: "Register your facility", href: "/register" },
+    primary: { label: "Sign up for your loved one", href: "/family-signup" },
     secondary: { label: "Sign in", href: "/login" },
   },
   facility: {
