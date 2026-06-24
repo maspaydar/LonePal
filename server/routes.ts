@@ -26,6 +26,7 @@ import { deviceConfigRouter, residentDeviceSettingsRouter } from "./routes/devic
 import companyRouter from "./routes/company/index";
 import mobileRouter from "./routes/mobile/index";
 import registrationRouter from "./routes/registration";
+import authRouter from "./routes/auth";
 import { WebhookHandlers } from "./webhookHandlers";
 import { getUncachableStripeClient } from "./stripeClient";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
@@ -87,6 +88,7 @@ export async function registerRoutes(
   app.use("/api/mobile/device-settings", residentDeviceSettingsRouter);
   app.use("/api/company", companyRouter);
   app.use("/api/mobile", mobileRouter);
+  app.use("/api/auth", authRouter);
   app.use("/api", registrationRouter);
 
   async function handleStripeWebhook(req: any, res: any) {

@@ -15,32 +15,26 @@ type LoginResult =
   | { kind: "company"; session: any }
   | { kind: "failed"; status: number; message?: string };
 
-async function trySuperAdmin(identifier: string, password: string): Promise<LoginResult> {
+// Single server endpoint determines the account type and tells us where to
+// route. The password is only ever submitted to this one endpoint.
+async function unifiedLogin(identifier: string, password: string): Promise<LoginResult> {
   try {
-    const res = await fetch("/api/super-admin/auth/login", {
+    const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: identifier, password }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) return { kind: "failed", status: res.status, message: data.error };
-    if (data.requires2FA) return { kind: "super-2fa", pendingToken: data.pendingToken };
-    return { kind: "super", token: data.token, admin: data.admin };
-  } catch {
-    return { kind: "failed", status: 0, message: "Connection failed" };
-  }
-}
-
-async function tryCompany(identifier: string, password: string): Promise<LoginResult> {
-  try {
-    const res = await fetch("/api/company/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: identifier, password }),
+      body: JSON.stringify({ identifier, password }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { kind: "failed", status: res.status, message: data.message || data.error };
-    return { kind: "company", session: data };
+
+    if (data.accountType === "super") {
+      if (data.requires2FA) return { kind: "super-2fa", pendingToken: data.pendingToken };
+      return { kind: "super", token: data.token, admin: data.admin };
+    }
+    if (data.accountType === "company") {
+      return { kind: "company", session: { token: data.token, user: data.user, entity: data.entity } };
+    }
+    return { kind: "failed", status: res.status, message: "Unexpected response from server" };
   } catch {
     return { kind: "failed", status: 0, message: "Connection failed" };
   }
@@ -95,26 +89,15 @@ export default function LoginPage() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      // Probe the most likely backend first based on the identifier shape:
-      // emails → super admin, plain usernames → facility (company) users.
-      const looksLikeEmail = identifier.includes("@");
-      const attempts = looksLikeEmail
-        ? [trySuperAdmin, tryCompany]
-        : [tryCompany, trySuperAdmin];
-
-      let lastFailure: LoginResult | null = null;
-      for (const attempt of attempts) {
-        const result = await attempt(identifier, password);
-        if (result.kind !== "failed") {
-          applyResult(result);
-          return;
-        }
-        lastFailure = result;
+      const result = await unifiedLogin(identifier, password);
+      if (result.kind !== "failed") {
+        applyResult(result);
+        return;
       }
 
       toast({
         title: "Login failed",
-        description: lastFailure?.message || "Invalid credentials. Check your email/username and password.",
+        description: result.message || "Invalid credentials. Check your email/username and password.",
         variant: "destructive",
       });
     } finally {
