@@ -293,6 +293,65 @@ router.post("/auth/register", requireSuperAdminOrBootstrap, async (req, res) => 
   }
 });
 
+router.get("/admins", superAdminAuthMiddleware, async (_req, res) => {
+  try {
+    const admins = await storage.listSuperAdmins();
+    res.json(
+      admins.map((a) => ({
+        id: a.id,
+        email: a.email,
+        fullName: a.fullName,
+        totpEnabled: a.totpEnabled,
+        isActive: a.isActive,
+        lastLoginAt: a.lastLoginAt,
+        createdAt: a.createdAt,
+      })),
+    );
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load super admins" });
+  }
+});
+
+router.patch("/admins/:id", superAdminAuthMiddleware, async (req: any, res) => {
+  try {
+    const id = Number(req.params.id);
+    const target = await storage.getSuperAdmin(id);
+    if (!target) return res.status(404).json({ error: "Super admin not found" });
+
+    const { isActive } = req.body ?? {};
+    if (typeof isActive !== "boolean") {
+      return res.status(400).json({ error: "isActive (boolean) is required" });
+    }
+
+    const currentId = req.superAdmin?.superAdminId;
+    if (!isActive && id === currentId) {
+      return res.status(400).json({ error: "You cannot deactivate your own account" });
+    }
+
+    if (!isActive) {
+      const activeAdmins = await storage.getAllSuperAdmins();
+      if (activeAdmins.length <= 1) {
+        return res.status(400).json({ error: "Cannot deactivate the last active super admin" });
+      }
+    }
+
+    const updated = await storage.updateSuperAdmin(id, { isActive });
+    if (!updated) return res.status(404).json({ error: "Super admin not found" });
+
+    res.json({
+      id: updated.id,
+      email: updated.email,
+      fullName: updated.fullName,
+      totpEnabled: updated.totpEnabled,
+      isActive: updated.isActive,
+      lastLoginAt: updated.lastLoginAt,
+      createdAt: updated.createdAt,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update super admin" });
+  }
+});
+
 router.get("/facilities", superAdminAuthMiddleware, async (_req, res) => {
   const result = await storage.getFacilities();
   res.json(result.map(f => ({ ...f, geminiApiKey: f.geminiApiKey ? "****" + f.geminiApiKey.slice(-4) : null })));

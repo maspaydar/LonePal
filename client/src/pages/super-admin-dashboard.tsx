@@ -47,6 +47,8 @@ import {
   CheckCircle,
   XCircle,
   UserCheck,
+  UserPlus,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -135,7 +137,7 @@ export default function SuperAdminDashboard() {
   const [verifyCode, setVerifyCode] = useState("");
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
 
-  const [activePanel, setActivePanel] = useState<"registrations" | "registry" | "healthmap" | "logstream" | "broadcast" | "recovery" | "provision">("registrations");
+  const [activePanel, setActivePanel] = useState<"registrations" | "registry" | "healthmap" | "logstream" | "broadcast" | "recovery" | "provision" | "admins">("registrations");
 
   const [showMaintenance, setShowMaintenance] = useState(false);
   const [maintenanceFacility, setMaintenanceFacility] = useState<Facility | null>(null);
@@ -522,6 +524,7 @@ export default function SuperAdminDashboard() {
             { id: "logstream", label: "Log Stream", icon: Radio },
             { id: "broadcast", label: "Broadcast", icon: Megaphone },
             { id: "recovery", label: "Recovery", icon: Terminal },
+            { id: "admins", label: "Admins", icon: ShieldCheck },
           ] as const).map((tab) => (
             <Button
               key={tab.id}
@@ -566,6 +569,7 @@ export default function SuperAdminDashboard() {
         {activePanel === "logstream" && (<LogStreamPanel />)}
         {activePanel === "broadcast" && (<BroadcastPanel />)}
         {activePanel === "recovery" && (<RecoveryPanel dashData={dashData} />)}
+        {activePanel === "admins" && (<AdminsPanel currentAdminId={admin.id} />)}
       </main>
 
       <ConfigDialog
@@ -832,6 +836,229 @@ function RegistrationsPanel({ facilities }: { facilities: Facility[] }) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+interface SuperAdminRow {
+  id: number;
+  email: string;
+  fullName: string;
+  totpEnabled: boolean;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string | null;
+}
+
+function AdminsPanel({ currentAdminId }: { currentAdminId?: number }) {
+  const { toast } = useToast();
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ fullName: "", email: "", password: "" });
+
+  const { data: admins, isLoading } = useQuery<SuperAdminRow[]>({
+    queryKey: ["/api/super-admin/admins"],
+    queryFn: async () => {
+      const res = await fetch("/api/super-admin/admins", { headers: authHeaders() });
+      if (!res.ok) throw new Error("Failed to load admins");
+      return res.json();
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (payload: { fullName: string; email: string; password: string }) => {
+      const res = await fetch("/api/super-admin/auth/register", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to create super admin");
+      return body;
+    },
+    onSuccess: () => {
+      toast({ title: "Super admin created", description: "The new admin can now sign in." });
+      setForm({ fullName: "", email: "", password: "" });
+      setShowCreate(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/admins"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not create admin", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
+      const res = await fetch(`/api/super-admin/admins/${id}`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to update admin");
+      return body;
+    },
+    onSuccess: (_data, variables) => {
+      toast({ title: variables.isActive ? "Admin reactivated" : "Admin deactivated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/admins"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "Never";
+    return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (form.password.length < 8) {
+      toast({ title: "Password too short", description: "Use at least 8 characters.", variant: "destructive" });
+      return;
+    }
+    createMutation.mutate(form);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5" />
+              Super Admins
+            </CardTitle>
+            <CardDescription>Create and manage accounts with full command-hub access.</CardDescription>
+          </div>
+          <Button size="sm" onClick={() => setShowCreate((v) => !v)} data-testid="button-toggle-create-admin">
+            <UserPlus className="w-4 h-4 mr-1" />
+            {showCreate ? "Cancel" : "New Super Admin"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {showCreate && (
+          <form onSubmit={handleCreate} className="grid gap-3 sm:grid-cols-3 items-end border rounded-md p-4 bg-muted/30" data-testid="form-create-admin">
+            <div className="space-y-2">
+              <Label htmlFor="admin-fullname">Full Name</Label>
+              <Input
+                id="admin-fullname"
+                value={form.fullName}
+                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+                required
+                data-testid="input-admin-fullname"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="admin-email">Email</Label>
+              <Input
+                id="admin-email"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                required
+                data-testid="input-admin-email"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="admin-password">Password</Label>
+              <Input
+                id="admin-password"
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                required
+                minLength={8}
+                placeholder="Min 8 characters"
+                data-testid="input-admin-password"
+              />
+            </div>
+            <div className="sm:col-span-3">
+              <Button type="submit" disabled={createMutation.isPending} data-testid="button-create-admin">
+                <UserPlus className="w-4 h-4 mr-1" />
+                {createMutation.isPending ? "Creating..." : "Create Super Admin"}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
+            <RefreshCw className="w-4 h-4 animate-spin" /> Loading admins...
+          </div>
+        ) : (admins?.length ?? 0) === 0 ? (
+          <p className="text-sm text-muted-foreground py-6">No super admins found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b">
+                  <th className="py-2 pr-3 font-medium">Name</th>
+                  <th className="py-2 pr-3 font-medium">Email</th>
+                  <th className="py-2 pr-3 font-medium">2FA</th>
+                  <th className="py-2 pr-3 font-medium">Last Login</th>
+                  <th className="py-2 pr-3 font-medium">Status</th>
+                  <th className="py-2 pr-3 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {admins?.map((a) => (
+                  <tr key={a.id} className="border-b last:border-0" data-testid={`row-admin-${a.id}`}>
+                    <td className="py-2 pr-3 font-medium" data-testid={`text-admin-name-${a.id}`}>
+                      {a.fullName}
+                      {a.id === currentAdminId && (
+                        <span className="ml-2 text-xs text-muted-foreground">(you)</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3" data-testid={`text-admin-email-${a.id}`}>{a.email}</td>
+                    <td className="py-2 pr-3">
+                      {a.totpEnabled ? (
+                        <Badge variant="secondary" className="gap-1"><CheckCircle className="w-3 h-3" /> On</Badge>
+                      ) : (
+                        <Badge variant="outline">Off</Badge>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-muted-foreground">{formatDate(a.lastLoginAt)}</td>
+                    <td className="py-2 pr-3">
+                      {a.isActive ? (
+                        <Badge className="bg-green-600 hover:bg-green-600" data-testid={`status-admin-${a.id}`}>Active</Badge>
+                      ) : (
+                        <Badge variant="destructive" data-testid={`status-admin-${a.id}`}>Inactive</Badge>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-right">
+                      {a.id === currentAdminId ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : a.isActive ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={toggleActiveMutation.isPending}
+                          onClick={() => toggleActiveMutation.mutate({ id: a.id, isActive: false })}
+                          data-testid={`button-deactivate-admin-${a.id}`}
+                        >
+                          <XCircle className="w-4 h-4 mr-1" /> Deactivate
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={toggleActiveMutation.isPending}
+                          onClick={() => toggleActiveMutation.mutate({ id: a.id, isActive: true })}
+                          data-testid={`button-reactivate-admin-${a.id}`}
+                        >
+                          <CheckCircle className="w-4 h-4 mr-1" /> Reactivate
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

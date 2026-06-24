@@ -125,6 +125,7 @@ export interface IStorage {
   getSuperAdminByEmail(email: string): Promise<SuperAdmin | undefined>;
   getSuperAdmin(id: number): Promise<SuperAdmin | undefined>;
   getAllSuperAdmins(): Promise<SuperAdmin[]>;
+  listSuperAdmins(): Promise<SuperAdmin[]>;
   createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin>;
   updateSuperAdmin(id: number, data: Partial<SuperAdmin>): Promise<SuperAdmin | undefined>;
 
@@ -725,6 +726,10 @@ export class DatabaseStorage implements IStorage {
 
   async getAllSuperAdmins(): Promise<SuperAdmin[]> {
     return db.select().from(superAdmins).where(eq(superAdmins.isActive, true));
+  }
+
+  async listSuperAdmins(): Promise<SuperAdmin[]> {
+    return db.select().from(superAdmins).orderBy(superAdmins.createdAt);
   }
 
   async createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin> {
