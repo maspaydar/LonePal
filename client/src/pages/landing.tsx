@@ -176,11 +176,13 @@ export default function LandingPage() {
             <span className="text-xl font-bold">HeyGrand</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" asChild data-testid="link-nav-signin">
-              <Link to="/login">Sign in</Link>
-            </Button>
-            <Button asChild data-testid="link-nav-register">
-              <Link to="/register">Register facility</Link>
+            {hero.secondary && (
+              <Button variant="ghost" asChild data-testid="link-nav-secondary">
+                <Link to={hero.secondary.href}>{hero.secondary.label}</Link>
+              </Button>
+            )}
+            <Button asChild data-testid="link-nav-primary">
+              <Link to={hero.primary.href}>{hero.primary.label}</Link>
             </Button>
           </div>
         </div>
