@@ -18,10 +18,20 @@ export default function SuperAdminLogin() {
       setLocation("/super-admin/dashboard");
     }
   }, []);
+
+  const [bootstrapAvailable, setBootstrapAvailable] = useState(false);
+  useEffect(() => {
+    fetch("/api/super-admin/auth/bootstrap-status")
+      .then((res) => (res.ok ? res.json() : { bootstrapAvailable: false }))
+      .then((data) => setBootstrapAvailable(!!data.bootstrapAvailable))
+      .catch(() => setBootstrapAvailable(false));
+  }, []);
+
   const [step, setStep] = useState<"login" | "2fa" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [bootstrapToken, setBootstrapToken] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [pendingToken, setPendingToken] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -92,7 +102,7 @@ export default function SuperAdminLogin() {
       const res = await fetch("/api/super-admin/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, fullName }),
+        body: JSON.stringify({ email, password, fullName, bootstrapToken }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -153,11 +163,13 @@ export default function SuperAdminLogin() {
                 <Lock className="w-4 h-4 mr-2" />
                 {isLoading ? "Signing in..." : "Sign In"}
               </Button>
-              <div className="text-center">
-                <Button variant="ghost" type="button" onClick={() => setStep("register")} data-testid="link-register">
-                  Create new account
-                </Button>
-              </div>
+              {bootstrapAvailable && (
+                <div className="text-center">
+                  <Button variant="ghost" type="button" onClick={() => setStep("register")} data-testid="link-register">
+                    Create first admin account
+                  </Button>
+                </div>
+              )}
             </form>
           )}
 
@@ -224,6 +236,18 @@ export default function SuperAdminLogin() {
                   required
                   minLength={8}
                   data-testid="input-reg-password"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bootstrapToken">Bootstrap Token</Label>
+                <Input
+                  id="bootstrapToken"
+                  type="password"
+                  value={bootstrapToken}
+                  onChange={(e) => setBootstrapToken(e.target.value)}
+                  required
+                  placeholder="Provided by your system operator"
+                  data-testid="input-bootstrap-token"
                 />
               </div>
               <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-register">

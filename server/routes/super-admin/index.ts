@@ -214,7 +214,52 @@ router.get("/auth/me", superAdminAuthMiddleware, async (req, res) => {
   });
 });
 
-router.post("/auth/register", async (req, res) => {
+async function requireSuperAdminOrBootstrap(
+  req: Parameters<typeof superAdminAuthMiddleware>[0],
+  res: Parameters<typeof superAdminAuthMiddleware>[1],
+  next: Parameters<typeof superAdminAuthMiddleware>[2],
+) {
+  let existingAdmins;
+  try {
+    existingAdmins = await storage.getAllSuperAdmins();
+  } catch {
+    return res.status(500).json({ error: "Registration check failed" });
+  }
+
+  if (existingAdmins.length > 0) {
+    return superAdminAuthMiddleware(req, res, next);
+  }
+
+  const bootstrapToken = process.env.SUPER_ADMIN_BOOTSTRAP_TOKEN;
+  if (!bootstrapToken) {
+    return res.status(503).json({
+      error: "Super-admin creation is disabled. Set SUPER_ADMIN_BOOTSTRAP_TOKEN to create the first admin.",
+    });
+  }
+
+  const provided =
+    (req.headers["x-bootstrap-token"] as string | undefined) ||
+    (req.body && typeof req.body === "object" ? req.body.bootstrapToken : undefined);
+
+  if (!provided || provided !== bootstrapToken) {
+    return res.status(403).json({ error: "Invalid bootstrap token" });
+  }
+
+  return next();
+}
+
+router.get("/auth/bootstrap-status", async (_req, res) => {
+  try {
+    const existingAdmins = await storage.getAllSuperAdmins();
+    const bootstrapAvailable =
+      existingAdmins.length === 0 && !!process.env.SUPER_ADMIN_BOOTSTRAP_TOKEN;
+    res.json({ bootstrapAvailable });
+  } catch {
+    res.status(500).json({ error: "Failed to check bootstrap status" });
+  }
+});
+
+router.post("/auth/register", requireSuperAdminOrBootstrap, async (req, res) => {
   try {
     const { email, password, fullName } = req.body;
     if (!email || !password || !fullName) {
