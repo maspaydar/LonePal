@@ -224,7 +224,7 @@ export default function LandingPage() {
               {hero.eyebrow}
             </p>
             <h1
-              className="text-balance text-4xl font-bold leading-tight sm:text-5xl"
+              className="text-balance text-base font-bold leading-tight"
               data-testid="text-hero-headline"
             >
               {hero.headline}
