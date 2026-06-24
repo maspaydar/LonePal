@@ -31,7 +31,7 @@ import { Button } from "@/components/ui/button";
 import { useCompanyAuth } from "@/hooks/use-company-auth";
 
 const navItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Residents", url: "/residents", icon: Users },
   { title: "Active Scenarios", url: "/scenarios", icon: Shield },
   { title: "Alerts", url: "/alerts", icon: Bell },

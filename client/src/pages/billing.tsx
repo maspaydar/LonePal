@@ -71,7 +71,7 @@ export default function BillingPage() {
   const currentUser = getCompanyUser();
 
   if (currentUser && currentUser.role !== "admin") {
-    setLocation("/");
+    setLocation("/dashboard");
     return null;
   }
 

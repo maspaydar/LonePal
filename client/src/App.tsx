@@ -27,6 +27,7 @@ import SettingsPage from "@/pages/settings";
 import ConversationDetail from "@/pages/conversation-detail";
 import Units from "@/pages/units";
 import SuperAdminDashboard from "@/pages/super-admin-dashboard";
+import LandingPage from "@/pages/landing";
 import LoginPage from "@/pages/login";
 import UserManagement from "@/pages/user-management";
 import RegisterPage from "@/pages/register";
@@ -129,7 +130,7 @@ function AdminOnlyGuard({ children }: { children: ReactNode }) {
   const { getUser } = useCompanyAuth();
   const user = getUser();
   if (!user || user.role !== "admin") {
-    return <Redirect to="/" />;
+    return <Redirect to="/dashboard" />;
   }
   return <>{children}</>;
 }
@@ -137,7 +138,7 @@ function AdminOnlyGuard({ children }: { children: ReactNode }) {
 function AdminRouter() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/residents" component={Residents} />
       <Route path="/residents/:id" component={ResidentDetail} />
       <Route path="/scenarios" component={Scenarios} />
@@ -282,6 +283,7 @@ function App() {
             <Route path="/super-admin">
               <SuperAdminRouter />
             </Route>
+            <Route path="/" component={LandingPage} />
             <Route path="/login" component={LoginPage} />
             <Route path="/register" component={RegisterPage} />
             <Route path="/verify-email" component={VerifyEmailPage} />

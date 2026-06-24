@@ -66,7 +66,7 @@ export default function LoginPage() {
     if (superAdmin.isAuthenticated()) {
       setLocation("/super-admin/dashboard");
     } else if (company.isAuthenticated()) {
-      setLocation("/");
+      setLocation("/dashboard");
     }
   }, []);
 
@@ -85,7 +85,7 @@ export default function LoginPage() {
     }
     if (result.kind === "company") {
       company.setSession(result.session);
-      setLocation("/");
+      setLocation("/dashboard");
       return true;
     }
     return false;
