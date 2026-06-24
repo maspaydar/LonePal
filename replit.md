@@ -76,3 +76,8 @@ This project uses `drizzle-kit push` (not migration files) for schema changes. A
 - `getFacilityByVerificationToken(token)` — email verification lookup
 - `getFacilityByLinkedEntityId(entityId)` — subscription status check on login
 - `getExpiredTrialFacilities()` — scheduler query for expired trials
+
+### Family First-Run Onboarding
+- After a family account (entity `type === "family"`) logs in with **zero residents**, `FamilyOnboardingGate` (in `client/src/App.tsx`, wraps `AdminRouter` inside `AppLayout`) redirects them to `/welcome`.
+- `/welcome` (`client/src/pages/family-onboarding.tsx`) is a company-authed, sidebar-free wizard with jargon-free copy: Welcome → loved one's profile (pre-filled from `entity.name`, the loved one's name captured at sign-up) → check-in setup (frequency presets + awake-hours + optional device pairing code) → done.
+- The wizard calls existing endpoints: `POST /api/entities/:id/residents`, `POST /api/entities/:id/units`, `POST .../units/:unitId/assign-resident`, and the new company-side `PUT /api/entities/:id/units/:unitId/device-settings` (also `GET`) which upserts `device_settings` and pushes `CONFIG_UPDATE` to the ESP32 if a MAC is bound. Once a resident exists, the gate stops redirecting so families reach the normal dashboard.

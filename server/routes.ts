@@ -30,9 +30,10 @@ import authRouter from "./routes/auth";
 import { WebhookHandlers } from "./webhookHandlers";
 import { getUncachableStripeClient } from "./stripeClient";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
-import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices } from "./services/esp32-speaker";
+import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices, pushEsp32ConfigUpdate } from "./services/esp32-speaker";
 import { initLogStreamer, streamInfo } from "./services/log-streamer";
 import crypto from "crypto";
+import { z } from "zod";
 
 let _insightsAI: GoogleGenAI | null = null;
 const _entityInsightsAI = new Map<number, GoogleGenAI>();
@@ -1131,6 +1132,68 @@ export async function registerRoutes(
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to unassign sensor" });
+    }
+  });
+
+  // --- Unit device settings (company-side; used by family onboarding) ---
+  app.get("/api/entities/:entityId/units/:unitId/device-settings", requireCompanyAuth, async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+      const unitId = Number(req.params.unitId);
+      const unit = await storage.getUnit(unitId);
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
+      const settings = await storage.getDeviceSettingsByUnit(unitId);
+      res.json(settings || null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to load device settings" });
+    }
+  });
+
+  app.put("/api/entities/:entityId/units/:unitId/device-settings", requireCompanyAuth, async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+      const unitId = Number(req.params.unitId);
+
+      const unit = await storage.getUnit(unitId);
+      if (!unit || unit.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
+
+      const settingsSchema = z.object({
+        sensitivity: z.number().int().min(0).max(100).optional(),
+        detectionDistance: z.number().int().min(50).max(600).optional(),
+        aiCheckInFrequency: z.number().int().min(15).max(720),
+        activeHoursStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM"),
+        activeHoursEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM"),
+      });
+      const parsed = settingsSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid settings", details: parsed.error.issues });
+
+      const existing = await storage.getDeviceSettingsByUnit(unitId);
+      const saved = await storage.upsertDeviceSettings({
+        entityId,
+        unitId,
+        deviceMac: unit.esp32DeviceMac || null,
+        sensitivity: parsed.data.sensitivity ?? existing?.sensitivity ?? 50,
+        detectionDistance: parsed.data.detectionDistance ?? existing?.detectionDistance ?? 400,
+        aiCheckInFrequency: parsed.data.aiCheckInFrequency,
+        activeHoursStart: parsed.data.activeHoursStart,
+        activeHoursEnd: parsed.data.activeHoursEnd,
+      });
+
+      if (unit.esp32DeviceMac) {
+        pushEsp32ConfigUpdate(unit.esp32DeviceMac, {
+          sensitivity: saved.sensitivity,
+          detectionDistance: saved.detectionDistance,
+          aiCheckInFrequency: saved.aiCheckInFrequency,
+          activeHoursStart: saved.activeHoursStart,
+          activeHoursEnd: saved.activeHoursEnd,
+        });
+      }
+
+      res.json(saved);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save device settings" });
     }
   });
 

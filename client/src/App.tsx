@@ -32,6 +32,7 @@ import LoginPage from "@/pages/login";
 import UserManagement from "@/pages/user-management";
 import RegisterPage from "@/pages/register";
 import FamilySignupPage from "@/pages/family-signup";
+import FamilyOnboardingPage from "@/pages/family-onboarding";
 import VerifyEmailPage from "@/pages/verify-email";
 import BillingPage from "@/pages/billing";
 import ReportsPage from "@/pages/reports";
@@ -166,6 +167,24 @@ function AdminRouter() {
   );
 }
 
+function FamilyOnboardingGate({ children }: { children: ReactNode }) {
+  const { getEntity } = useCompanyAuth();
+  const eid = getCompanyEntityId();
+  const entity = getEntity();
+  const isFamily = entity?.type === "family";
+
+  const { data: residents, isLoading } = useQuery<any[]>({
+    queryKey: [`/api/entities/${eid}/residents`],
+    enabled: !!eid && isFamily,
+  });
+
+  if (isFamily && !isLoading && Array.isArray(residents) && residents.length === 0) {
+    return <Redirect to="/welcome" />;
+  }
+
+  return <>{children}</>;
+}
+
 function AppLayout() {
   const eid = getCompanyEntityId();
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -233,7 +252,9 @@ function AppLayout() {
             <ThemeToggle />
           </header>
           <main className="flex-1 overflow-auto">
-            <AdminRouter />
+            <FamilyOnboardingGate>
+              <AdminRouter />
+            </FamilyOnboardingGate>
           </main>
         </div>
       </div>
@@ -315,6 +336,11 @@ function App() {
               <ResidentAuthGuard>
                 <ResidentDeviceSettingsPage />
               </ResidentAuthGuard>
+            </Route>
+            <Route path="/welcome">
+              <CompanyAuthGuard>
+                <FamilyOnboardingPage />
+              </CompanyAuthGuard>
             </Route>
             <Route>
               <CompanyAuthGuard>
