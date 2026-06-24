@@ -409,7 +409,10 @@ export const insertFacilityHealthLogSchema = createInsertSchema(facilityHealthLo
 
 export const superAdminLoginSchema = z.object({
   email: z.string().email("Valid email required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  // Login only requires a non-empty password — length/complexity policy is
+  // enforced at registration and password-reset, not at sign-in. Enforcing a
+  // minimum here would lock out otherwise-valid existing accounts.
+  password: z.string().min(1, "Password is required"),
 });
 
 export const superAdminVerify2FASchema = z.object({

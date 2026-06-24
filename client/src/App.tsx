@@ -26,7 +26,6 @@ import ScenarioConfig from "@/pages/scenario-config";
 import SettingsPage from "@/pages/settings";
 import ConversationDetail from "@/pages/conversation-detail";
 import Units from "@/pages/units";
-import SuperAdminLogin from "@/pages/super-admin-login";
 import SuperAdminDashboard from "@/pages/super-admin-dashboard";
 import LoginPage from "@/pages/login";
 import UserManagement from "@/pages/user-management";
@@ -243,7 +242,7 @@ function AppLayout() {
 function SuperAdminGuard({ children }: { children: ReactNode }) {
   const token = localStorage.getItem("sa_token");
   if (!token) {
-    return <Redirect to="/super-admin/login" />;
+    return <Redirect to="/login" />;
   }
   return <>{children}</>;
 }
@@ -251,7 +250,9 @@ function SuperAdminGuard({ children }: { children: ReactNode }) {
 function SuperAdminRouter() {
   return (
     <Switch>
-      <Route path="/super-admin/login" component={SuperAdminLogin} />
+      <Route path="/super-admin/login">
+        <Redirect to="/login" />
+      </Route>
       <Route path="/super-admin/dashboard">
         <SuperAdminGuard>
           <SuperAdminDashboard />
@@ -263,7 +264,7 @@ function SuperAdminRouter() {
         </SuperAdminGuard>
       </Route>
       <Route path="/super-admin">
-        <Redirect to="/super-admin/login" />
+        <Redirect to="/login" />
       </Route>
     </Switch>
   );
