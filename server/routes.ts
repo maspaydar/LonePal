@@ -32,11 +32,80 @@ import { getUncachableStripeClient } from "./stripeClient";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
 import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices, pushEsp32ConfigUpdate } from "./services/esp32-speaker";
 import { initLogStreamer, streamInfo } from "./services/log-streamer";
+import { normalizeMac } from "./lib/device-mac";
 import crypto from "crypto";
 import { z } from "zod";
 
 let _insightsAI: GoogleGenAI | null = null;
 const _entityInsightsAI = new Map<number, GoogleGenAI>();
+
+type DeviceCodeValidation =
+  | { valid: false; reason: "format" | "not_found" | "claimed"; message: string }
+  | { valid: true; deviceMac: string; online: boolean; alreadyLinked: boolean };
+
+/**
+ * Validate an entered device pairing code against real/known devices for an
+ * entity. Shared by the company-side validate-code endpoint AND the unit
+ * create/update paths so a bad code can never be persisted, even by a racey or
+ * bypassed client.
+ */
+async function validateDeviceCode(
+  entityId: number,
+  rawCode: string,
+): Promise<DeviceCodeValidation> {
+  const normalized = normalizeMac(rawCode);
+  if (!normalized) {
+    return {
+      valid: false,
+      reason: "format",
+      message:
+        "That doesn't look like a valid pairing code. Check the code on the back of the device and try again.",
+    };
+  }
+
+  // Is the device connected to us right now? Compare in canonical form so any
+  // stored/transport format variations still match.
+  const online = getConnectedEsp32Devices().some((m) => normalizeMac(m) === normalized);
+
+  // Already paired to one of THIS family's homes? That's fine — re-pairing /
+  // editing. Bound to a different account → it belongs to someone else.
+  const existingUnit = await storage.getUnitByEsp32Mac(normalized);
+  if (existingUnit) {
+    if (existingUnit.entityId !== entityId) {
+      return {
+        valid: false,
+        reason: "claimed",
+        message:
+          "This device is already paired with another account. Please contact support if you think this is a mistake.",
+      };
+    }
+    return { valid: true, deviceMac: normalized, online, alreadyLinked: true };
+  }
+
+  const existingSensor = await storage.getSensorByEsp32Mac(normalized);
+  if (existingSensor && existingSensor.entityId !== entityId) {
+    return {
+      valid: false,
+      reason: "claimed",
+      message:
+        "This device is already paired with another account. Please contact support if you think this is a mistake.",
+    };
+  }
+
+  // A device is "real" if it's talking to us right now (connected over the
+  // ESP32 WebSocket) or it has already reported a sensor under this account.
+  const known = online || !!existingSensor;
+  if (!known) {
+    return {
+      valid: false,
+      reason: "not_found",
+      message:
+        "We couldn't find a device with that code. Make sure it's plugged in and connected to Wi-Fi, then try again.",
+    };
+  }
+
+  return { valid: true, deviceMac: normalized, online, alreadyLinked: false };
+}
 
 function getAIForInsights(): GoogleGenAI | null {
   if (!process.env.GEMINI_API_KEY) return null;
@@ -71,7 +140,9 @@ export async function registerRoutes(
   const esp32Wss = new WebSocketServer({ server: httpServer, path: "/ws/esp32" });
   esp32Wss.on("connection", (ws, req) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
-    const deviceMac = url.searchParams.get("mac");
+    // Register under the canonical MAC so lookups (config, validation, pushes)
+    // match regardless of how the firmware formats its address.
+    const deviceMac = normalizeMac(url.searchParams.get("mac")) || url.searchParams.get("mac");
     if (deviceMac) {
       registerEsp32Device(deviceMac, ws);
       log(`ESP32 WebSocket connected: ${deviceMac}`, "esp32-ws");
@@ -1024,6 +1095,16 @@ export async function registerRoutes(
       const existing = await storage.getUnitByIdentifier(entityId, parsed.unitIdentifier);
       if (existing) return res.status(409).json({ error: `Unit ${parsed.unitIdentifier} already exists` });
 
+      // Re-validate any pairing code server-side so a bad/stale code can't be
+      // persisted by a racey or bypassed client. Store the canonical MAC.
+      if (parsed.esp32DeviceMac) {
+        const check = await validateDeviceCode(entityId, parsed.esp32DeviceMac);
+        if (!check.valid) {
+          return res.status(400).json({ error: check.message, reason: check.reason });
+        }
+        parsed.esp32DeviceMac = check.deviceMac;
+      }
+
       const unit = await storage.createUnit(parsed);
       res.status(201).json(unit);
     } catch (error: any) {
@@ -1032,15 +1113,29 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/entities/:entityId/units/:unitId", async (req, res) => {
+  app.put("/api/entities/:entityId/units/:unitId", requireCompanyAuth, async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const unitId = Number(req.params.unitId);
+      if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
       const existing = await storage.getUnit(unitId);
       if (!existing || existing.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
       const { unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac } = req.body;
+
+      // Re-validate any pairing code server-side so a bad/stale code can't be
+      // persisted by a racey or bypassed client. Store the canonical MAC.
+      // (null/empty clears the pairing and skips validation.)
+      let macToStore = esp32DeviceMac;
+      if (esp32DeviceMac) {
+        const check = await validateDeviceCode(entityId, esp32DeviceMac);
+        if (!check.valid) {
+          return res.status(400).json({ error: check.message, reason: check.reason });
+        }
+        macToStore = check.deviceMac;
+      }
+
       const updated = await storage.updateUnit(unitId, {
-        unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac,
+        unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac: macToStore,
       });
       if (!updated) return res.status(404).json({ error: "Unit not found" });
       res.json(updated);
@@ -1194,6 +1289,22 @@ export async function registerRoutes(
       res.json(saved);
     } catch (error) {
       res.status(500).json({ error: "Failed to save device settings" });
+    }
+  });
+
+  // --- Device pairing code validation (company-side; used by family onboarding) ---
+  // Checks an entered pairing code against real/known devices BEFORE it's saved,
+  // so a mistyped code surfaces an error immediately instead of failing silently.
+  app.get("/api/entities/:entityId/devices/validate-code", requireCompanyAuth, async (req, res) => {
+    try {
+      const entityId = Number(req.params.entityId);
+      if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
+
+      const raw = typeof req.query.code === "string" ? req.query.code : "";
+      const result = await validateDeviceCode(entityId, raw);
+      return res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to validate device code" });
     }
   });
 

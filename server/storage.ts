@@ -332,7 +332,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSensorByEsp32Mac(deviceMac: string): Promise<Sensor | undefined> {
-    const [sensor] = await db.select().from(sensors).where(eq(sensors.esp32DeviceMac, deviceMac));
+    // Format-tolerant match: compare the canonical (lowercase, separator-free)
+    // form on both sides so "AA:BB:.." and "aabb.." resolve to the same device.
+    const canonical = deviceMac.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+    const [sensor] = await db
+      .select()
+      .from(sensors)
+      .where(sql`lower(regexp_replace(${sensors.esp32DeviceMac}, '[^0-9A-Fa-f]', '', 'g')) = ${canonical}`);
     return sensor;
   }
 
@@ -351,7 +357,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUnitByEsp32Mac(deviceMac: string): Promise<Unit | undefined> {
-    const [unit] = await db.select().from(units).where(eq(units.esp32DeviceMac, deviceMac));
+    // Format-tolerant match: compare the canonical (lowercase, separator-free)
+    // form on both sides so "AA:BB:.." and "aabb.." resolve to the same device.
+    const canonical = deviceMac.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+    const [unit] = await db
+      .select()
+      .from(units)
+      .where(sql`lower(regexp_replace(${units.esp32DeviceMac}, '[^0-9A-Fa-f]', '', 'g')) = ${canonical}`);
     return unit;
   }
 
