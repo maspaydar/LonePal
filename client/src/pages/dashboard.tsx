@@ -74,6 +74,7 @@ export default function Dashboard() {
   const { getEntityId, getEntity } = useCompanyAuth();
   const eid = getEntityId();
   const entity = getEntity();
+  const isFamily = entity?.type === "family";
   const { toast } = useToast();
 
   const { data: dashData, isLoading } = useQuery<any>({
@@ -135,14 +136,20 @@ export default function Dashboard() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold" data-testid="text-dashboard-title">Nexus Dashboard</h1>
-        <p className="text-muted-foreground">{entity?.name ?? "Your Facility"} - Real-time monitoring</p>
+        <h1 className="text-2xl font-semibold" data-testid="text-dashboard-title">
+          {isFamily ? "Home" : "Nexus Dashboard"}
+        </h1>
+        <p className="text-muted-foreground">
+          {isFamily
+            ? `${entity?.name ?? "Your loved one"} - Safety at a glance`
+            : `${entity?.name ?? "Your Facility"} - Real-time monitoring`}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Residents</CardTitle>
+            <CardTitle className="text-sm font-medium">{isFamily ? "Loved Ones" : "Total Residents"}</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -189,7 +196,7 @@ export default function Dashboard() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Users className="h-4 w-4" />
-            Resident Monitoring
+            {isFamily ? "Your Loved One" : "Resident Monitoring"}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -340,7 +347,7 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              Recent Broadcasts
+              {isFamily ? "Recent Messages" : "Recent Broadcasts"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -374,22 +381,24 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Zap className="h-4 w-4" />
-            Quick Actions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3">
-            <TriggerButton residentId={1} scenarioType="inactivity_gentle" label="Test Gentle Check-in (Maggie)" />
-            <TriggerButton residentId={2} scenarioType="inactivity_urgent" label="Test Urgent Check-in (Bob)" />
-            <TriggerButton residentId={3} scenarioType="fall_detected" label="Test Fall Detection (Ellie)" />
-            <TriggerButton residentId={1} scenarioType="bathroom_extended" label="Test Bathroom Alert (Maggie)" location="bathroom" />
-          </div>
-        </CardContent>
-      </Card>
+      {!isFamily && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Quick Actions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              <TriggerButton residentId={1} scenarioType="inactivity_gentle" label="Test Gentle Check-in (Maggie)" />
+              <TriggerButton residentId={2} scenarioType="inactivity_urgent" label="Test Urgent Check-in (Bob)" />
+              <TriggerButton residentId={3} scenarioType="fall_detected" label="Test Fall Detection (Ellie)" />
+              <TriggerButton residentId={1} scenarioType="bathroom_extended" label="Test Bathroom Alert (Maggie)" location="bathroom" />
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -403,8 +412,9 @@ type BroadcastFormValues = z.infer<typeof broadcastFormSchema>;
 
 function BroadcastForm() {
   const { toast } = useToast();
-  const { getEntityId } = useCompanyAuth();
+  const { getEntityId, getEntity } = useCompanyAuth();
   const eid = getEntityId();
+  const isFamily = getEntity()?.type === "family";
 
   const form = useForm<BroadcastFormValues>({
     resolver: zodResolver(broadcastFormSchema),
@@ -413,16 +423,16 @@ function BroadcastForm() {
 
   const broadcastMutation = useMutation({
     mutationFn: (values: BroadcastFormValues) => apiRequest("POST", `/api/entities/${eid}/broadcasts`, {
-      senderName: values.senderName.trim() || "Facility Admin",
+      senderName: values.senderName.trim() || (isFamily ? "Family" : "Facility Admin"),
       message: values.message.trim(),
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${eid}/broadcasts`] });
-      toast({ title: "Announcement sent to all AI companions" });
+      toast({ title: isFamily ? "Message sent to the AI companion" : "Announcement sent to all AI companions" });
       form.reset();
     },
     onError: (err: any) => {
-      toast({ title: "Failed to send announcement", description: err.message, variant: "destructive" });
+      toast({ title: "Failed to send message", description: err.message, variant: "destructive" });
     },
   });
 
@@ -435,7 +445,7 @@ function BroadcastForm() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Megaphone className="h-4 w-4" />
-          Community Broadcast
+          {isFamily ? "Send a Message" : "Community Broadcast"}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -449,7 +459,7 @@ function BroadcastForm() {
                   <FormLabel>Your Name (optional)</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="Facility Admin"
+                      placeholder={isFamily ? "Family" : "Facility Admin"}
                       {...field}
                       data-testid="input-broadcast-sender"
                     />
@@ -462,10 +472,12 @@ function BroadcastForm() {
               name="message"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Announcement</FormLabel>
+                  <FormLabel>{isFamily ? "Message" : "Announcement"}</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Type an announcement for all residents... (e.g., 'Bridge club at 3 PM in the common room')"
+                      placeholder={isFamily
+                        ? "Share something with your loved one... (e.g., 'We'll visit this Sunday afternoon!')"
+                        : "Type an announcement for all residents... (e.g., 'Bridge club at 3 PM in the common room')"}
                       className="resize-none min-h-[80px]"
                       {...field}
                       data-testid="input-broadcast-message"
@@ -481,10 +493,12 @@ function BroadcastForm() {
               data-testid="button-send-broadcast"
             >
               <Send className="h-4 w-4 mr-2" />
-              {broadcastMutation.isPending ? "Sending..." : "Send to All AI Companions"}
+              {broadcastMutation.isPending ? "Sending..." : isFamily ? "Send Message" : "Send to All AI Companions"}
             </Button>
             <p className="text-xs text-muted-foreground">
-              This announcement will be delivered through each resident's AI companion during their next conversation.
+              {isFamily
+                ? "This message will be shared through your loved one's AI companion during their next conversation."
+                : "This announcement will be delivered through each resident's AI companion during their next conversation."}
             </p>
           </form>
         </Form>

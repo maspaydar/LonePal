@@ -30,18 +30,26 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useCompanyAuth } from "@/hooks/use-company-auth";
 
-const navItems = [
+interface NavItem {
+  title: string;
+  familyTitle?: string;
+  url: string;
+  icon: typeof LayoutDashboard;
+  facilityOnly?: boolean;
+}
+
+const navItems: NavItem[] = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Residents", url: "/residents", icon: Users },
-  { title: "Active Scenarios", url: "/scenarios", icon: Shield },
+  { title: "Residents", familyTitle: "Loved One", url: "/residents", icon: Users },
+  { title: "Active Scenarios", familyTitle: "Check-ins", url: "/scenarios", icon: Shield },
   { title: "Alerts", url: "/alerts", icon: Bell },
   { title: "Activity Log", url: "/activity", icon: Activity },
-  { title: "Sensors", url: "/sensors", icon: Radio },
-  { title: "Units", url: "/units", icon: Building2 },
+  { title: "Sensors", familyTitle: "Devices", url: "/sensors", icon: Radio },
+  { title: "Units", url: "/units", icon: Building2, facilityOnly: true },
 ];
 
-const configItems = [
-  { title: "Scenario Rules", url: "/scenario-config", icon: Zap },
+const configItems: NavItem[] = [
+  { title: "Scenario Rules", familyTitle: "Check-in Rules", url: "/scenario-config", icon: Zap },
   { title: "Billing", url: "/billing", icon: CreditCard },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
@@ -57,6 +65,11 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
   const user = getUser();
   const entity = getEntity();
   const isAdmin = user?.role === "admin";
+  const isFamily = entity?.type === "family";
+
+  const labelOf = (item: NavItem) => (isFamily && item.familyTitle ? item.familyTitle : item.title);
+  const visibleNavItems = navItems.filter((item) => !(isFamily && item.facilityOnly));
+  const visibleConfigItems = configItems.filter((item) => item.title !== "Billing" || isAdmin);
 
   return (
     <Sidebar>
@@ -79,17 +92,17 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Monitoring</SidebarGroupLabel>
+          <SidebarGroupLabel>{isFamily ? "Home" : "Monitoring"}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const isActive = location === item.url;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild data-active={isActive}>
                       <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                         <item.icon className="w-4 h-4" />
-                        <span className="flex-1">{item.title}</span>
+                        <span className="flex-1">{labelOf(item)}</span>
                         {item.title === "Alerts" && unreadAlerts > 0 && (
                           <Badge variant="destructive" className="text-xs" data-testid="badge-unread-alerts">
                             {unreadAlerts}
@@ -113,20 +126,20 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
           <SidebarGroupLabel>Configuration</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {configItems.filter(item => item.title !== "Billing" || isAdmin).map((item) => {
+              {visibleConfigItems.map((item) => {
                 const isActive = location === item.url;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild data-active={isActive}>
                       <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                         <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
+                        <span>{labelOf(item)}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
               })}
-              {isAdmin && (
+              {isAdmin && !isFamily && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild data-active={location === "/user-management"}>
                     <Link href="/user-management" data-testid="link-nav-user-management">
@@ -136,7 +149,7 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
-              {isAdmin && (
+              {isAdmin && !isFamily && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild data-active={location === "/reports"}>
                     <Link href="/reports" data-testid="link-nav-reports">

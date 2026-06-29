@@ -137,6 +137,14 @@ function AdminOnlyGuard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function FacilityOnlyGuard({ children }: { children: ReactNode }) {
+  const { getEntity } = useCompanyAuth();
+  if (getEntity()?.type === "family") {
+    return <Redirect to="/dashboard" />;
+  }
+  return <>{children}</>;
+}
+
 function AdminRouter() {
   return (
     <Switch>
@@ -147,20 +155,28 @@ function AdminRouter() {
       <Route path="/alerts" component={Alerts} />
       <Route path="/activity" component={ActivityLog} />
       <Route path="/sensors" component={Sensors} />
-      <Route path="/units" component={Units} />
+      <Route path="/units">
+        <FacilityOnlyGuard>
+          <Units />
+        </FacilityOnlyGuard>
+      </Route>
       <Route path="/scenario-config" component={ScenarioConfig} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/billing" component={BillingPage} />
       <Route path="/conversations/:id" component={ConversationDetail} />
       <Route path="/user-management">
-        <AdminOnlyGuard>
-          <UserManagement />
-        </AdminOnlyGuard>
+        <FacilityOnlyGuard>
+          <AdminOnlyGuard>
+            <UserManagement />
+          </AdminOnlyGuard>
+        </FacilityOnlyGuard>
       </Route>
       <Route path="/reports">
-        <AdminOnlyGuard>
-          <ReportsPage />
-        </AdminOnlyGuard>
+        <FacilityOnlyGuard>
+          <AdminOnlyGuard>
+            <ReportsPage />
+          </AdminOnlyGuard>
+        </FacilityOnlyGuard>
       </Route>
       <Route component={NotFound} />
     </Switch>

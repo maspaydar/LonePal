@@ -30,6 +30,7 @@ export default function SettingsPage() {
   const { getEntityId, getEntity } = useCompanyAuth();
   const eid = getEntityId();
   const entity = getEntity();
+  const isFamily = entity?.type === "family";
   const headers = getCompanyAuthHeaders();
 
   const seedMutation = useMutation({
@@ -154,31 +155,33 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Wifi className="h-4 w-4" /> ADT Integration
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Configure your ADT webhook endpoint to receive motion sensor events.
-            </p>
-            <div className="p-3 rounded-md bg-muted">
-              <p className="text-xs font-mono text-muted-foreground break-all">
-                POST {window.location.origin}/api/webhook/adt
+        {!isFamily && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Wifi className="h-4 w-4" /> ADT Integration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Configure your ADT webhook endpoint to receive motion sensor events.
               </p>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Send JSON payload with deviceId, eventType, and optional timestamp fields.
-            </p>
-          </CardContent>
-        </Card>
+              <div className="p-3 rounded-md bg-muted">
+                <p className="text-xs font-mono text-muted-foreground break-all">
+                  POST {window.location.origin}/api/webhook/adt
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Send JSON payload with deviceId, eventType, and optional timestamp fields.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Shield className="h-4 w-4" /> Your Facility
+              <Shield className="h-4 w-4" /> {isFamily ? "Your Account" : "Your Facility"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -191,7 +194,7 @@ export default function SettingsPage() {
                 <Badge variant="secondary" className="text-xs">Active</Badge>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No facility configured.</p>
+              <p className="text-sm text-muted-foreground">No account configured.</p>
             )}
           </CardContent>
         </Card>
