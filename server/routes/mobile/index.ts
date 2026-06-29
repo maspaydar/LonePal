@@ -4,7 +4,8 @@ import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "../../middleware/mobile-auth";
 import { mobileLoginSchema, insertUserPreferencesSchema } from "@shared/schema";
 import { emergencyService } from "../../services/emergency-service";
-import { generateCompanionReply, runMonitorAgent, streamCompanionResponse, transcribeAudio, buildConversationContext, generateOnboardingResponse, type MonitorVerdict } from "../../ai-engine";
+import { generateCompanionReply, runMonitorAgent, streamCompanionResponse, transcribeAudio, buildConversationContext, generateOnboardingResponse, generateIntakeResponse, type MonitorVerdict } from "../../ai-engine";
+import type { OnboardingProfile } from "@shared/schema";
 import { broadcastToClients } from "../../ws-broadcast";
 import { log } from "../../index";
 import { dailyLogger } from "../../daily-logger";
@@ -69,6 +70,45 @@ async function applyMonitorVerdict(opts: {
 }
 
 /**
+ * Runs one turn of the Onboarding Intake Agent for a resident whose onboarding
+ * is not yet 'completed'. This BYPASSES the Dual-Agent (Companion + Monitor)
+ * flow entirely: no safety monitoring, no companion persona — just the warm
+ * intake specialist gathering the resident's profile one question at a time.
+ * Persists the merged profile and flips onboardingStatus to in_progress /
+ * completed, then saves the assistant reply to the conversation.
+ */
+async function runIntakeTurn(opts: {
+  resident: { id: number; entityId: number; preferredName: string | null; firstName: string; onboardingProfile: unknown };
+  conversationId: number;
+  userMessage: string;
+  history: { role: string; content: string }[];
+}): Promise<{ aiResponse: string; isComplete: boolean }> {
+  const { resident, conversationId, userMessage, history } = opts;
+  const currentProfile = (resident.onboardingProfile as OnboardingProfile | null) || {};
+
+  const result = await generateIntakeResponse(
+    resident as any,
+    userMessage,
+    history,
+    currentProfile
+  );
+
+  await storage.updateResidentOnboarding(resident.id, {
+    onboardingStatus: result.isComplete ? "completed" : "in_progress",
+    onboardingProfile: result.profile,
+  });
+
+  await storage.createMessage({ conversationId, role: "assistant", content: result.aiResponse });
+
+  dailyLogger.info("mobile-api", `Intake turn for resident ${resident.id}`, {
+    residentId: resident.id,
+    isComplete: result.isComplete,
+  });
+
+  return { aiResponse: result.aiResponse, isComplete: result.isComplete };
+}
+
+/**
  * POST /api/mobile/respond
  * Auth: mobileAuthMiddleware (resident JWT required)
  * Tenant scope: residentId from JWT; body residentId must match JWT claim.
@@ -109,6 +149,25 @@ router.post("/respond", mobileAuthMiddleware, async (req, res) => {
 
     const allMessages = await storage.getMessages(conv.id);
     const history = allMessages.map(m => ({ role: m.role, content: m.content }));
+
+    // Onboarding bypass: while the resident's onboarding is not yet completed,
+    // route the message to the specialized Intake Agent instead of the
+    // Dual-Agent (Companion + Monitor) flow.
+    if (resident.onboardingStatus !== "completed") {
+      const intake = await runIntakeTurn({
+        resident,
+        conversationId: conv.id,
+        userMessage: message,
+        history: history.slice(0, -1),
+      });
+      return res.json({
+        response: intake.aiResponse,
+        isResolved: true,
+        conversationId: conv.id,
+        onboarding: true,
+        onboardingComplete: intake.isComplete,
+      });
+    }
 
     const activeScens = await storage.getActiveScenariosForResident(jwtResidentId);
     const activeScenario = activeScens.find(s => s.id === Number(req.body.scenarioId)) || activeScens[0];
@@ -209,6 +268,22 @@ router.post("/respond-stream", mobileAuthMiddleware, async (req, res) => {
     res.setHeader("X-Accel-Buffering", "no");
 
     res.write(`data: ${JSON.stringify({ type: "transcription", text: userMessage })}\n\n`);
+
+    // Onboarding bypass: while onboarding is not yet completed, route to the
+    // Intake Agent instead of the Dual-Agent. The intake reply is generated as a
+    // whole (not token-streamed), so it is emitted as a single chunk.
+    if (resident.onboardingStatus !== "completed") {
+      const intake = await runIntakeTurn({
+        resident,
+        conversationId: conv.id,
+        userMessage,
+        history: rawHistory.slice(0, -1),
+      });
+      res.write(`data: ${JSON.stringify({ type: "chunk", text: intake.aiResponse })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "done", isResolved: true, conversationId: conv.id, onboarding: true, onboardingComplete: intake.isComplete })}\n\n`);
+      res.end();
+      return;
+    }
 
     // Dual-Agent: the silent Monitor runs in parallel so it never blocks the
     // Companion's streamed reply to the resident.

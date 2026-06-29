@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { storage } from "./storage";
-import type { Resident, ScenarioConfig, ActiveScenario, UserPreferences } from "@shared/schema";
+import type { Resident, ScenarioConfig, ActiveScenario, UserPreferences, OnboardingProfile } from "@shared/schema";
 import { log } from "./index";
 
 let _ai: GoogleGenAI | null = null;
@@ -710,5 +710,243 @@ The memoryTopic should describe the content of what ${name} JUST said (not the n
       ? `That's really lovely, ${name}. ${TOPIC_OPENERS[nextTopic]}`
       : `I'm so glad you shared that with me, ${name}. Thank you.`;
     return { aiResponse: fallback, memoryTopic: "other", memorySummary: userMessage, isComplete };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding Intake Agent
+// ---------------------------------------------------------------------------
+// A specialized, single-purpose agent that runs INSTEAD of the Dual-Agent
+// (Companion + Monitor) flow while a resident's onboarding is not yet complete.
+// It wears a warm, professional "intake specialist" persona and gathers four
+// things — one question at a time — into the resident's OnboardingProfile:
+//   1. Who they are                         -> aboutResident
+//   2. Who the AI should emulate (e.g.       -> companionName (+ relationshipType)
+//      "Grandson Leo")
+//   3. 3-4 key family memories               -> coreMemories
+//   4. Topics to avoid                       -> boundaries
+
+export interface IntakeResult {
+  aiResponse: string;
+  profile: OnboardingProfile;
+  isComplete: boolean;
+}
+
+const INTAKE_MIN_MEMORIES = 3;
+
+/**
+ * Returns the next still-missing intake field in priority order, or null when
+ * the profile has everything we need. This is the authoritative completion
+ * gate — never trust the model alone to decide when intake is done.
+ */
+function getNextIntakeField(p: OnboardingProfile): keyof OnboardingProfile | null {
+  if (!p.aboutResident || !p.aboutResident.trim()) return "aboutResident";
+  if (!p.companionName || !p.companionName.trim()) return "companionName";
+  if (!p.coreMemories || p.coreMemories.filter(m => m && m.trim()).length < INTAKE_MIN_MEMORIES) return "coreMemories";
+  // `boundaries` is complete once it is DEFINED — including an empty array,
+  // which is the valid "no topics to avoid" answer. It stays undefined (not [])
+  // until the resident has actually responded to the boundaries question.
+  if (p.boundaries === undefined) return "boundaries";
+  return null;
+}
+
+const NONE_LIKE = /^(no|none|nope|nothing|n\/a|na|not really|nothing comes to mind)\.?$/i;
+
+const INTAKE_FIELD_GOALS: Record<string, string> = {
+  aboutResident:
+    "Learn who the resident is — their name and a little about who they are (where they're from, family, what fills their days). Store this in `aboutResident`.",
+  companionName:
+    "Learn who they'd like their AI companion to feel like — the relationship (e.g. grandson, daughter, old friend) and that person's name (e.g. \"Grandson Leo\"). Store the person's name in `companionName` and the relationship in `relationshipType`.",
+  coreMemories:
+    `Collect ${INTAKE_MIN_MEMORIES}-4 cherished family memories, one at a time. Append each new memory to the \`coreMemories\` array.`,
+  boundaries:
+    "Find out if there are any topics the companion should never bring up. Store each as an item in the `boundaries` array (use an empty array if they say there are none).",
+};
+
+function normalizeIntakeProfile(merged: any, current: OnboardingProfile, boundariesProvided: boolean): OnboardingProfile {
+  const result: OnboardingProfile = { ...current };
+  if (typeof merged?.aboutResident === "string" && merged.aboutResident.trim()) {
+    result.aboutResident = merged.aboutResident.trim();
+  }
+  if (typeof merged?.relationshipType === "string" && merged.relationshipType.trim()) {
+    result.relationshipType = merged.relationshipType.trim();
+  }
+  if (typeof merged?.companionName === "string" && merged.companionName.trim()) {
+    result.companionName = merged.companionName.trim();
+  }
+  if (Array.isArray(merged?.coreMemories)) {
+    const cleaned = merged.coreMemories.map((m: any) => String(m).trim()).filter((m: string) => m.length > 0);
+    if (cleaned.length > 0) result.coreMemories = cleaned;
+  }
+  // Only record boundaries when the resident has actually answered the boundaries
+  // question this turn. The model echoes the full profile shape (incl. an empty
+  // `boundaries` array) every turn, so without this gate the empty echo would
+  // prematurely mark onboarding complete before boundaries is ever asked. An
+  // empty array here is the valid "no topics to avoid" answer.
+  if (boundariesProvided) {
+    result.boundaries = Array.isArray(merged?.boundaries)
+      ? merged.boundaries.map((b: any) => String(b).trim()).filter((b: string) => b.length > 0)
+      : [];
+  }
+  return result;
+}
+
+/**
+ * Onboarding Intake Agent. Bypasses the Companion/Monitor Dual-Agent flow.
+ * Given the conversation so far and the profile gathered to date, it merges the
+ * resident's latest answer into the profile and asks the single next question.
+ * Completion is decided server-side via getNextIntakeField, not by the model.
+ */
+export async function generateIntakeResponse(
+  resident: Resident,
+  userMessage: string | null,
+  conversationHistory: { role: string; content: string }[],
+  currentProfile: OnboardingProfile
+): Promise<IntakeResult> {
+  const name = resident.preferredName || resident.firstName;
+  const aiClient = await getAIForEntity(resident.entityId);
+
+  const profile: OnboardingProfile = { ...currentProfile };
+  const nextField = getNextIntakeField(profile);
+
+  // Opening turn (no message yet): warm intro + first question, no model needed.
+  if (!userMessage) {
+    const opener = `Hello ${name}, it's so nice to meet you. I'm here to help set up a companion who will check in on you and keep you company. To start, I'd love to get to know you a little — could you tell me your name and a bit about yourself?`;
+    return { aiResponse: opener, profile, isComplete: false };
+  }
+
+  // No AI configured for this facility: deterministic fallback that still
+  // advances the intake by recording the raw answer where it belongs.
+  if (!aiClient) {
+    const fallbackProfile = applyFallbackAnswer(profile, nextField, userMessage);
+    const stillMissing = getNextIntakeField(fallbackProfile);
+    const reply = fallbackQuestion(name, stillMissing);
+    return { aiResponse: reply, profile: fallbackProfile, isComplete: stillMissing === null };
+  }
+
+  const systemInstruction = `You are a warm, professional onboarding intake specialist for HeyGrand, a companion-care service for older adults. You are speaking with ${name}.
+Your manner is calm, patient, kind, and respectful — like an attentive care coordinator. You are NOT role-playing as a family member yet; you are the friendly person setting up their companion.
+Rules:
+- Ask only ONE question per turn. Keep replies short (2-3 warm sentences max).
+- Acknowledge what ${name} just shared before asking the next question.
+- Never rush, never sound clinical, and never mention AI, computers, JSON, or that this is data collection.
+- If an answer is vague, you may gently ask a brief follow-up for the SAME field rather than moving on.`;
+
+  const goal = nextField
+    ? INTAKE_FIELD_GOALS[nextField]
+    : "All required information is gathered. Warmly thank them and let them know their companion is ready.";
+
+  const prompt = `Here is what we have gathered so far about ${name} (fields may be empty):
+${JSON.stringify(profile, null, 2)}
+
+${name} just said: "${userMessage}"
+
+Your task right now: ${goal}
+
+First, merge anything useful from ${name}'s latest message into the profile fields.
+${nextField ? `Then ask the single next question to make progress on the goal above.` : `Then give a warm closing message — do not ask another question.`}
+
+Respond ONLY with a JSON object of this exact shape:
+{
+  "reply": "<your warm spoken reply to ${name} — acknowledgement + ${nextField ? "one question" : "closing message"}>",
+  "boundariesProvided": false,
+  "profile": {
+    "aboutResident": "<string or empty>",
+    "relationshipType": "<string or empty>",
+    "companionName": "<string or empty>",
+    "coreMemories": ["<memory>", "..."],
+    "boundaries": ["<topic to avoid>", "..."]
+  }
+}
+Set "boundariesProvided" to true ONLY on the turn where ${name} has just answered the question about which topics to avoid (use an empty boundaries array if they say there are none). On every other turn it MUST be false.
+The profile you return MUST preserve everything already gathered and add the new information. Do not drop existing memories or fields.`;
+
+  try {
+    const contents: any[] = conversationHistory.map(m => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+    contents.push({ role: "user", parts: [{ text: prompt }] });
+
+    const response = await aiClient.models.generateContent({
+      model: getModelName(),
+      contents,
+      config: {
+        systemInstruction,
+        maxOutputTokens: 500,
+        temperature: 0.6,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const raw = response.text || "";
+    const match = raw.match(/\{[\s\S]*\}/);
+    let reply = "";
+    let mergedProfile = profile;
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (typeof parsed.reply === "string") reply = parsed.reply.trim();
+      // Trust the explicit signal, but also treat a none-like answer while the
+      // boundaries question is the active goal as a valid "no boundaries".
+      const boundariesProvided =
+        parsed.boundariesProvided === true ||
+        (nextField === "boundaries" && NONE_LIKE.test(userMessage.trim()));
+      mergedProfile = normalizeIntakeProfile(parsed.profile, profile, boundariesProvided);
+    }
+
+    const stillMissing = getNextIntakeField(mergedProfile);
+    const isComplete = stillMissing === null;
+
+    if (!reply) {
+      reply = isComplete
+        ? `Thank you so much, ${name}. Your companion is all set up and ready whenever you'd like to chat.`
+        : fallbackQuestion(name, stillMissing);
+    }
+
+    return { aiResponse: reply, profile: mergedProfile, isComplete };
+  } catch (error) {
+    log(`Intake agent error: ${error}`, "ai-engine");
+    const fallbackProfile = applyFallbackAnswer(profile, nextField, userMessage);
+    const stillMissing = getNextIntakeField(fallbackProfile);
+    return {
+      aiResponse: fallbackQuestion(name, stillMissing),
+      profile: fallbackProfile,
+      isComplete: stillMissing === null,
+    };
+  }
+}
+
+/** Records a raw answer into the field currently being asked, for use when the model is unavailable. */
+function applyFallbackAnswer(
+  profile: OnboardingProfile,
+  field: keyof OnboardingProfile | null,
+  answer: string
+): OnboardingProfile {
+  const next: OnboardingProfile = { ...profile };
+  const value = answer.trim();
+  if (!field || !value) return next;
+  if (field === "aboutResident") next.aboutResident = value;
+  else if (field === "companionName") next.companionName = value;
+  else if (field === "coreMemories") next.coreMemories = [...(next.coreMemories || []), value];
+  else if (field === "boundaries") {
+    // A none-like answer means "no topics to avoid" → empty (but defined) array.
+    next.boundaries = NONE_LIKE.test(value) ? [] : [...(next.boundaries || []), value];
+  }
+  return next;
+}
+
+/** Deterministic question copy used as a safety net when the model fails or is unconfigured. */
+function fallbackQuestion(name: string, field: keyof OnboardingProfile | null): string {
+  switch (field) {
+    case "aboutResident":
+      return `Thank you, ${name}. Could you tell me a little about yourself — your name and a bit about who you are?`;
+    case "companionName":
+      return `Lovely. Who would you like your companion to feel like — for example a grandson named Leo, a daughter, or an old friend? What's their name?`;
+    case "coreMemories":
+      return `That's wonderful. Could you share a cherished family memory with me?`;
+    case "boundaries":
+      return `Thank you for sharing. Lastly, are there any topics you'd prefer your companion never bring up?`;
+    default:
+      return `Thank you so much, ${name}. Your companion is all set up and ready whenever you'd like to chat.`;
   }
 }

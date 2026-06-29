@@ -490,6 +490,7 @@ export type Resident = typeof residents.$inferSelect;
 export type InsertResident = z.infer<typeof insertResidentSchema>;
 export type OnboardingStatus = (typeof onboardingStatusEnum.enumValues)[number];
 export interface OnboardingProfile {
+  aboutResident?: string;
   relationshipType?: string;
   companionName?: string;
   coreMemories?: string[];
