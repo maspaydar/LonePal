@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
+import { getStoredCompanyToken } from "@/lib/company-token";
 
 type WSMessage = {
   type: string;
@@ -15,7 +16,9 @@ export function useWebSocket(onMessage?: WSHandler) {
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const token = getStoredCompanyToken();
+    const query = token ? `?token=${encodeURIComponent(token)}` : "";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws${query}`);
     wsRef.current = ws;
 
     ws.onopen = () => setIsConnected(true);

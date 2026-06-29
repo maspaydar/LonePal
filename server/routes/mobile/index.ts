@@ -47,25 +47,53 @@ async function applyMonitorVerdict(opts: {
   }
 
   const isResolved = verdict.safe && !verdict.needsHelp;
+  // "Red" safety level: the Monitor flagged an emergency. This MUST raise a staff
+  // alert and push it in real time even when NO inactivity scenario is currently
+  // open — e.g. a resident who proactively says "I fell down" mid-conversation.
+  // Gating emission on `activeScenario` previously dropped exactly this case.
+  const isEmergency = verdict.needsHelp || verdict.riskLevel === "high";
 
-  if (verdict.needsHelp && activeScenario) {
-    await storage.updateActiveScenario(activeScenario.id, { status: "staff_alerted" } as any);
+  if (isEmergency) {
+    // Escalate an open scenario if one exists, but NEVER gate alerting on it.
+    if (activeScenario) {
+      await storage.updateActiveScenario(activeScenario.id, { status: "staff_alerted" } as any);
+    }
     const alertReason = verdict.summary?.trim()
       ? verdict.summary.trim()
       : `Resident indicated they may need assistance${via ? ` via ${via}` : ""}.`;
-    await storage.createAlert({
+    const alert = await storage.createAlert({
       entityId: resident.entityId,
       residentId: resident.id,
-      scenarioId: activeScenario.id,
+      scenarioId: activeScenario?.id ?? null,
       severity: "critical",
       title: `${residentName} needs help`,
       message: `${alertReason} Last message: "${message}"`,
     });
-    broadcastToClients({ type: "alert", data: { residentId: resident.id, severity: "critical" } });
+    await storage.updateResidentStatus(resident.id, "alert", new Date());
+
+    // Real-time push to the staff dashboard, scoped to this tenant via entityId
+    // so other facilities' dashboards ignore it (multi-tenant isolation).
+    broadcastToClients({
+      type: "alert",
+      entityId: resident.entityId,
+      data: {
+        alertId: alert.id,
+        residentId: resident.id,
+        residentName,
+        severity: "critical",
+        riskLevel: verdict.riskLevel,
+        summary: verdict.summary,
+        scenarioId: activeScenario?.id ?? null,
+      },
+    });
   } else if (isResolved && activeScenario) {
     await storage.resolveActiveScenario(activeScenario.id, "resident_response");
     await storage.updateResidentStatus(resident.id, "safe", new Date());
-    broadcastToClients({ type: "scenario_resolved", data: { id: activeScenario.id, residentId: resident.id } });
+    broadcastToClients({
+      type: "scenario_resolved",
+      entityId: resident.entityId,
+      data: { id: activeScenario.id, residentId: resident.id },
+    });
   }
 }
 
@@ -307,7 +335,7 @@ router.post("/respond-stream", mobileAuthMiddleware, async (req, res) => {
     await storage.createMessage({ conversationId: conv.id, role: "assistant", content: result.fullResponse });
 
     const verdict = await monitorPromise;
-    const isResolved = verdict.safe && !verdict.needsHelp;
+    const isResolved = verdict.safe && !verdict.needsHelp && verdict.riskLevel !== "high";
 
     await applyMonitorVerdict({
       verdict,

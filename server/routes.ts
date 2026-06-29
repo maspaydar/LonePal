@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { WebSocketServer } from "ws";
-import { setWss, broadcastToClients } from "./ws-broadcast";
+import { setWss, broadcastToClients, tagClientEntity } from "./ws-broadcast";
 import { generateAICheckIn, clearEntityAiClient } from "./ai-engine";
 import { insertEntitySchema, insertUnitSchema, insertResidentSchema, insertSensorSchema, insertScenarioConfigSchema, insertCommunityBroadcastSchema, type Facility } from "@shared/schema";
 import { log } from "./index";
@@ -16,7 +16,7 @@ import { inactivityMonitor } from "./services/inactivity-monitor";
 import { emergencyService } from "./services/emergency-service";
 import { GoogleGenAI } from "@google/genai";
 import bcrypt from "bcryptjs";
-import { requireCompanyAuth, requireCompanyAdmin } from "./middleware/company-auth";
+import { requireCompanyAuth, requireCompanyAdmin, verifyCompanyToken } from "./middleware/company-auth";
 import { superAdminAuthMiddleware } from "./middleware/super-admin-auth";
 import superAdminRouter from "./routes/super-admin/index";
 import maintenanceRouter from "./routes/maintenance";
@@ -132,7 +132,20 @@ export async function registerRoutes(
 ): Promise<Server> {
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
   setWss(wss);
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req) => {
+    // Bind this dashboard socket to its facility (entityId) using the company
+    // JWT passed as a query param. Entity-scoped broadcasts (e.g. critical
+    // safety alerts) are then delivered ONLY to that tenant's sockets — the
+    // server-side multi-tenant isolation boundary. Untagged sockets (no/invalid
+    // token) never receive entity-scoped messages.
+    try {
+      const url = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
+      const token = url.searchParams.get("token");
+      const payload = token ? verifyCompanyToken(token) : null;
+      if (payload) tagClientEntity(ws, payload.entityId);
+    } catch {
+      // Leave socket untagged on any parsing/verification failure.
+    }
     log("WebSocket client connected", "ws");
     ws.on("close", () => log("WebSocket client disconnected", "ws"));
   });
@@ -583,6 +596,7 @@ export async function registerRoutes(
 
       broadcastToClients({
         type: "motion_event",
+        entityId: motionEvent.entityId,
         data: motionEvent,
       });
 
@@ -632,6 +646,7 @@ export async function registerRoutes(
 
       broadcastToClients({
         type: "motion_event",
+        entityId: motionEvent.entityId,
         data: motionEvent,
       });
 
@@ -681,7 +696,7 @@ export async function registerRoutes(
     const { resolvedBy } = req.body;
     await storage.resolveActiveScenario(Number(req.params.id), resolvedBy || "staff");
     await storage.updateResidentStatus(scenario.residentId, "safe");
-    broadcastToClients({ type: "scenario_resolved", data: { id: Number(req.params.id) } });
+    broadcastToClients({ type: "scenario_resolved", entityId: scenario.entityId, data: { id: Number(req.params.id) } });
     res.json({ resolved: true });
   });
 
@@ -980,6 +995,7 @@ export async function registerRoutes(
 
       broadcastToClients({
         type: "scenario_triggered",
+        entityId: resident.entityId,
         data: { scenario: activeScenario, alert, conversation, aiMessage },
       });
 
@@ -1522,7 +1538,7 @@ export async function registerRoutes(
         });
       }
 
-      broadcastToClients({ type: "community_broadcast", data: broadcast });
+      broadcastToClients({ type: "community_broadcast", entityId, data: broadcast });
 
       dailyLogger.info("broadcast", `Community broadcast sent to ${residentsList.length} residents`, { entityId });
       res.status(201).json(broadcast);

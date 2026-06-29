@@ -227,6 +227,12 @@ function AppLayout() {
   const handleWsMessage = useCallback((msg: any) => {
     if (msg.type === "scenario_triggered" || msg.type === "alert" || msg.type === "scenario_resolved" || msg.type === "motion_event") {
       const entityId = getCompanyEntityId();
+      // Multi-tenant isolation: when an event is addressed to a specific facility,
+      // ignore it unless it belongs to this dashboard's entity. Events without an
+      // entityId remain backwards-compatible (handled as before).
+      if (msg.entityId != null && entityId != null && Number(msg.entityId) !== Number(entityId)) {
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/dashboard`] });
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/alerts`] });
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/active-scenarios`] });
