@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -136,6 +136,10 @@ export default function SuperAdminDashboard() {
   const [totpData, setTotpData] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [verifyCode, setVerifyCode] = useState("");
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
+  const [twoFAJustEnrolled, setTwoFAJustEnrolled] = useState(false);
+
+  const admin = getAdmin();
+  const needs2FAEnrollment = !admin.totpEnabled && !twoFAJustEnrolled;
 
   const [activePanel, setActivePanel] = useState<"registrations" | "registry" | "healthmap" | "logstream" | "broadcast" | "recovery" | "provision" | "admins">("registrations");
 
@@ -175,6 +179,7 @@ export default function SuperAdminDashboard() {
       }
       return res.json();
     },
+    enabled: !needs2FAEnrollment,
     refetchInterval: 30000,
   });
 
@@ -188,6 +193,7 @@ export default function SuperAdminDashboard() {
       }
       return res.json();
     },
+    enabled: !needs2FAEnrollment,
     refetchInterval: 30000,
   });
 
@@ -409,7 +415,15 @@ export default function SuperAdminDashboard() {
     },
   });
 
-  const admin = getAdmin();
+  if (needs2FAEnrollment) {
+    return (
+      <MandatoryTwoFAGate
+        toast={toast}
+        onComplete={() => setTwoFAJustEnrolled(true)}
+        onLogout={handleLogout}
+      />
+    );
+  }
 
   if (isLoading) {
     return (
@@ -2227,6 +2241,142 @@ function ConfigDialog({ showConfigDialog, setShowConfigDialog, selectedFacility,
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function MandatoryTwoFAGate({ toast, onComplete, onLogout }: any) {
+  const [totpData, setTotpData] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+  const [verifyCode, setVerifyCode] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [setupError, setSetupError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/super-admin/auth/setup-2fa", {
+          method: "POST",
+          headers: authHeaders(),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (!cancelled) setSetupError(data.error || "Failed to start 2FA setup");
+          return;
+        }
+        if (!cancelled) setTotpData(data);
+      } catch {
+        if (!cancelled) setSetupError("Failed to start 2FA setup");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleConfirm() {
+    setIsVerifying(true);
+    try {
+      const res = await fetch("/api/super-admin/auth/confirm-2fa", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ token: verifyCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ title: "Verification failed", description: data.error, variant: "destructive" });
+        return;
+      }
+      const adminData = JSON.parse(localStorage.getItem("sa_admin") || "{}");
+      adminData.totpEnabled = true;
+      localStorage.setItem("sa_admin", JSON.stringify(adminData));
+      toast({ title: "2FA Enabled", description: "Two-factor authentication is now active" });
+      onComplete();
+    } catch {
+      toast({ title: "Error", description: "Verification failed", variant: "destructive" });
+    } finally {
+      setIsVerifying(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <div className="flex justify-center mb-3">
+            <div className="flex items-center justify-center w-12 h-12 rounded-md bg-primary">
+              <ShieldCheck className="w-6 h-6 text-primary-foreground" />
+            </div>
+          </div>
+          <CardTitle data-testid="text-mandatory-2fa-title">Set Up Two-Factor Authentication</CardTitle>
+          <CardDescription>
+            The command hub controls every facility, so two-factor authentication is required before you can continue.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {setupError && (
+            <div className="space-y-4">
+              <p className="text-sm text-destructive" data-testid="text-2fa-setup-error">{setupError}</p>
+              <Button variant="outline" className="w-full" onClick={onLogout} data-testid="button-mandatory-2fa-logout">
+                <LogOut className="w-4 h-4 mr-1" />
+                Log out
+              </Button>
+            </div>
+          )}
+          {!setupError && !totpData && (
+            <div className="flex justify-center py-8">
+              <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {!setupError && totpData && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Add this secret key to your authenticator app (Google Authenticator, Authy, etc.):
+                </p>
+                <div className="bg-muted p-3 rounded-md">
+                  <code className="text-sm font-mono break-all" data-testid="text-mandatory-totp-secret">{totpData.secret}</code>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">Or use this URI:</p>
+                <div className="bg-muted p-3 rounded-md">
+                  <code className="text-xs font-mono break-all">{totpData.otpauthUrl}</code>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Enter a code from your authenticator to finish setup:</Label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={verifyCode}
+                  onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="000000"
+                  className="text-center text-xl tracking-widest"
+                  autoFocus
+                  data-testid="input-mandatory-verify-2fa-code"
+                />
+              </div>
+              <Button
+                className="w-full"
+                disabled={verifyCode.length !== 6 || isVerifying}
+                onClick={handleConfirm}
+                data-testid="button-mandatory-confirm-2fa"
+              >
+                <KeyRound className="w-4 h-4 mr-1" />
+                {isVerifying ? "Verifying..." : "Verify and Enable 2FA"}
+              </Button>
+              <div className="text-center">
+                <Button variant="ghost" size="sm" onClick={onLogout} data-testid="button-mandatory-2fa-logout">
+                  <LogOut className="w-4 h-4 mr-1" />
+                  Log out
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

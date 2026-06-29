@@ -293,6 +293,31 @@ router.post("/auth/register", requireSuperAdminOrBootstrap, async (req, res) => 
   }
 });
 
+async function requireEnrolled2FA(
+  req: Parameters<typeof superAdminAuthMiddleware>[0],
+  res: Parameters<typeof superAdminAuthMiddleware>[1],
+  next: Parameters<typeof superAdminAuthMiddleware>[2],
+) {
+  superAdminAuthMiddleware(req, res, async () => {
+    try {
+      const admin = await storage.getSuperAdmin(req.superAdmin!.superAdminId);
+      if (!admin) return res.status(404).json({ error: "Admin not found" });
+      if (!admin.totpEnabled) {
+        return res.status(403).json({
+          error: "2FA_SETUP_REQUIRED",
+          message:
+            "You must finish setting up two-factor authentication before using the command hub.",
+        });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ error: "Authorization check failed" });
+    }
+  });
+}
+
+router.use(requireEnrolled2FA);
+
 router.get("/admins", superAdminAuthMiddleware, async (_req, res) => {
   try {
     const admins = await storage.listSuperAdmins();

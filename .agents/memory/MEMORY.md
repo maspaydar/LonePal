@@ -1,0 +1,1 @@
+- [Super-admin 2FA enforcement](super-admin-2fa-enforcement.md) — 2FA is mandatory for all super admins via a router gate; un-enrolled admins are 403'd from sensitive routes and forced to enroll on login.
