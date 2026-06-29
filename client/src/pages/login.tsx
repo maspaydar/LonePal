@@ -7,13 +7,14 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useCompanyAuth } from "@/hooks/use-company-auth";
 import { useSuperAdminAuth } from "@/hooks/use-super-admin-auth";
-import { Shield, Eye, EyeOff, KeyRound } from "lucide-react";
+import { Shield, Eye, EyeOff, KeyRound, Ban, LifeBuoy, Smartphone } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type LoginResult =
   | { kind: "super"; token: string; admin: Record<string, any> }
   | { kind: "super-2fa"; pendingToken: string }
   | { kind: "company"; session: any }
-  | { kind: "failed"; status: number; message?: string };
+  | { kind: "failed"; status: number; code?: string; message?: string };
 
 // Single server endpoint determines the account type and tells us where to
 // route. The password is only ever submitted to this one endpoint.
@@ -25,7 +26,14 @@ async function unifiedLogin(identifier: string, password: string): Promise<Login
       body: JSON.stringify({ identifier, password }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return { kind: "failed", status: res.status, message: data.message || data.error };
+    if (!res.ok) {
+      return {
+        kind: "failed",
+        status: res.status,
+        code: typeof data.error === "string" ? data.error : undefined,
+        message: data.message || (typeof data.error === "string" ? data.error : undefined),
+      };
+    }
 
     if (data.accountType === "super") {
       if (data.requires2FA) return { kind: "super-2fa", pendingToken: data.pendingToken };
@@ -38,6 +46,59 @@ async function unifiedLogin(identifier: string, password: string): Promise<Login
   } catch {
     return { kind: "failed", status: 0, message: "Connection failed" };
   }
+}
+
+// Maps a failed login into a tailored inline message. Subscription, wrong-portal,
+// and deactivated cases each get a friendlier, more actionable presentation than
+// a plain error toast.
+type LoginErrorKind = "subscription" | "resident" | "deactivated" | "generic";
+interface LoginErrorView {
+  kind: LoginErrorKind;
+  title: string;
+  description: string;
+}
+
+function classifyLoginError(result: Extract<LoginResult, { kind: "failed" }>): LoginErrorView {
+  const code = result.code;
+  if (code === "subscription_paused") {
+    return {
+      kind: "subscription",
+      title: "Subscription expired",
+      description:
+        result.message ||
+        "Your facility's subscription has expired. Renew to restore access to your dashboard.",
+    };
+  }
+  if (code === "subscription_cancelled") {
+    return {
+      kind: "subscription",
+      title: "Subscription cancelled",
+      description:
+        result.message ||
+        "Your facility's subscription has been cancelled. Contact support to reactivate your account.",
+    };
+  }
+  if (result.status === 403 && /portal is for facility staff|residents must use/i.test(result.message || "")) {
+    return {
+      kind: "resident",
+      title: "This is the staff sign-in",
+      description:
+        "It looks like you have a resident account. Use the resident sign-in to reach your companion app.",
+    };
+  }
+  if (result.status === 401 && /deactivated/i.test(result.message || "")) {
+    return {
+      kind: "deactivated",
+      title: "Account deactivated",
+      description:
+        "This account has been deactivated. Please ask your facility administrator to restore your access.",
+    };
+  }
+  return {
+    kind: "generic",
+    title: "Login failed",
+    description: result.message || "Invalid credentials. Check your email/username and password.",
+  };
 }
 
 export default function LoginPage() {
@@ -55,6 +116,7 @@ export default function LoginPage() {
   const [totpCode, setTotpCode] = useState("");
   const [pendingToken, setPendingToken] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
+  const [loginError, setLoginError] = useState<LoginErrorView | null>(null);
 
   useEffect(() => {
     if (superAdmin.isAuthenticated()) {
@@ -88,6 +150,7 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setIsLoading(true);
+    setLoginError(null);
     try {
       const result = await unifiedLogin(identifier, password);
       if (result.kind !== "failed") {
@@ -95,11 +158,13 @@ export default function LoginPage() {
         return;
       }
 
-      toast({
-        title: "Login failed",
-        description: result.message || "Invalid credentials. Check your email/username and password.",
-        variant: "destructive",
-      });
+      const view = classifyLoginError(result);
+      setLoginError(view);
+      // Generic credential failures stay as a lightweight toast; the more
+      // specific account-state cases get a persistent inline call-to-action.
+      if (view.kind === "generic") {
+        toast({ title: view.title, description: view.description, variant: "destructive" });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -158,6 +223,38 @@ export default function LoginPage() {
           <CardContent>
             {step === "login" && (
               <form onSubmit={handleLogin} className="space-y-4">
+                {loginError && loginError.kind !== "generic" && (
+                  <Alert variant="destructive" data-testid={`alert-login-${loginError.kind}`}>
+                    {loginError.kind === "subscription" && <LifeBuoy className="h-4 w-4" />}
+                    {loginError.kind === "resident" && <Smartphone className="h-4 w-4" />}
+                    {loginError.kind === "deactivated" && <Ban className="h-4 w-4" />}
+                    <AlertTitle data-testid="text-login-error-title">{loginError.title}</AlertTitle>
+                    <AlertDescription className="space-y-2">
+                      <p data-testid="text-login-error-description">{loginError.description}</p>
+                      {loginError.kind === "subscription" && (
+                        <a
+                          href="mailto:support@heygrand.com?subject=Subscription%20renewal"
+                          className="inline-flex items-center gap-1 font-medium underline underline-offset-4"
+                          data-testid="link-contact-support"
+                        >
+                          <LifeBuoy className="h-3.5 w-3.5" />
+                          Contact support to renew
+                        </a>
+                      )}
+                      {loginError.kind === "resident" && (
+                        <button
+                          type="button"
+                          onClick={() => setLocation("/resident/login")}
+                          className="inline-flex items-center gap-1 font-medium underline underline-offset-4"
+                          data-testid="link-go-resident-login"
+                        >
+                          <Smartphone className="h-3.5 w-3.5" />
+                          Go to resident sign in
+                        </button>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="space-y-1">
                   <Label htmlFor="identifier">Email or Username</Label>
                   <Input
