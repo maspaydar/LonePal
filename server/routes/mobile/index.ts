@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "../../middleware/mobile-auth";
 import { mobileLoginSchema, insertUserPreferencesSchema } from "@shared/schema";
 import { emergencyService } from "../../services/emergency-service";
-import { generateCompanionReply, runMonitorAgent, streamCompanionResponse, transcribeAudio, buildConversationContext, generateOnboardingResponse, generateIntakeResponse, type MonitorVerdict } from "../../ai-engine";
+import { generateCompanionReply, runMonitorAgent, streamCompanionResponse, transcribeAudio, buildConversationContext, generateOnboardingResponse, generateIntakeResponse, invalidatePersonaCache, type MonitorVerdict } from "../../ai-engine";
 import type { OnboardingProfile } from "@shared/schema";
 import { broadcastToClients } from "../../ws-broadcast";
 import { log } from "../../index";
@@ -97,6 +97,12 @@ async function runIntakeTurn(opts: {
     onboardingStatus: result.isComplete ? "completed" : "in_progress",
     onboardingProfile: result.profile,
   });
+
+  // When intake finishes, drop any cached companion persona so the very next
+  // daily chat is built fresh from the newly-saved onboarding_profile.
+  if (result.isComplete) {
+    invalidatePersonaCache(resident.id);
+  }
 
   await storage.createMessage({ conversationId, role: "assistant", content: result.aiResponse });
 

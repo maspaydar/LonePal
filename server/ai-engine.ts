@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { storage } from "./storage";
 import type { Resident, ScenarioConfig, ActiveScenario, UserPreferences, OnboardingProfile } from "@shared/schema";
 import { log } from "./index";
@@ -79,6 +79,7 @@ function getToneInstruction(tone: string): string {
 function buildPersonaPrompt(resident: Resident, prefs?: UserPreferences | null): string {
   const persona = resident.digitalTwinPersona as any;
   const intake = resident.intakeInterviewData as any;
+  const onboarding = resident.onboardingProfile as OnboardingProfile | null;
   const name = resident.preferredName || resident.firstName;
 
   let prompt = `You are a caring AI companion for ${name}, a senior resident. `;
@@ -86,6 +87,26 @@ function buildPersonaPrompt(resident: Resident, prefs?: UserPreferences | null):
   if (prefs) {
     prompt += `${getVerbosityInstruction(prefs.aiVerbosity)} `;
     prompt += `${getToneInstruction(prefs.preferredVoiceTone)} `;
+  }
+
+  // Onboarding profile is the resident/family-authored source of truth gathered
+  // during intake. It defines who the companion should feel like, what it knows
+  // about the resident, the memories it can lean on, and the topics it must
+  // never raise — so it shapes the persona ahead of legacy persona/intake data.
+  if (onboarding) {
+    if (onboarding.companionName) {
+      const rel = onboarding.relationshipType ? ` (${name}'s ${onboarding.relationshipType})` : "";
+      prompt += `Speak as ${onboarding.companionName}${rel} — warm and familiar, the way that person would talk with ${name}. `;
+    }
+    if (onboarding.aboutResident) {
+      prompt += `About ${name}: ${onboarding.aboutResident}. `;
+    }
+    if (onboarding.coreMemories?.length) {
+      prompt += `Cherished memories to reference naturally when it feels right: ${onboarding.coreMemories.join("; ")}. `;
+    }
+    if (onboarding.boundaries?.length) {
+      prompt += `Never bring up these topics: ${onboarding.boundaries.join(", ")}. `;
+    }
   }
 
   if (resident.communicationStyle) {
@@ -876,6 +897,30 @@ The profile you return MUST preserve everything already gathered and add the new
         maxOutputTokens: 500,
         temperature: 0.6,
         responseMimeType: "application/json",
+        // Gemini Structured Outputs: the model is constrained to this exact
+        // shape so we can reliably read back the merged profile and decide
+        // server-side (via getNextIntakeField) when all four intake pieces are
+        // gathered. boundariesProvided flags the single turn where the resident
+        // has just answered the "topics to avoid" question.
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            reply: { type: Type.STRING },
+            boundariesProvided: { type: Type.BOOLEAN },
+            profile: {
+              type: Type.OBJECT,
+              properties: {
+                aboutResident: { type: Type.STRING },
+                relationshipType: { type: Type.STRING },
+                companionName: { type: Type.STRING },
+                coreMemories: { type: Type.ARRAY, items: { type: Type.STRING } },
+                boundaries: { type: Type.ARRAY, items: { type: Type.STRING } },
+              },
+              required: ["aboutResident", "relationshipType", "companionName", "coreMemories", "boundaries"],
+            },
+          },
+          required: ["reply", "boundariesProvided", "profile"],
+        },
       },
     });
 

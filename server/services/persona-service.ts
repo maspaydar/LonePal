@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { getEntityPath } from "../tenant-folders";
 import { dailyLogger } from "../daily-logger";
-import type { Resident } from "@shared/schema";
+import type { Resident, OnboardingProfile } from "@shared/schema";
 import type { DigitalTwinBiography } from "./intake-service";
 
 interface BiographyFile {
@@ -43,6 +43,29 @@ function buildSystemPrompt(resident: Resident, biography: DigitalTwinBiography |
   prompt += `- You are a patient, empathetic friend who genuinely cares about ${name}.\n`;
   prompt += `- You remember details from past conversations and reference them naturally.\n`;
   prompt += `- You never rush, never judge, and always validate ${name}'s feelings.\n\n`;
+
+  // Onboarding profile is the resident/family-authored source of truth captured
+  // during intake. When present it defines who the companion feels like and the
+  // memories/boundaries it must honor, so it leads the rest of the persona.
+  const onboarding = resident.onboardingProfile as OnboardingProfile | null;
+  if (onboarding) {
+    prompt += `## Companion Setup (from ${name}'s onboarding — honor this)\n`;
+    if (onboarding.companionName) {
+      const rel = onboarding.relationshipType ? ` (${name}'s ${onboarding.relationshipType})` : "";
+      prompt += `- Speak as ${onboarding.companionName}${rel} — warm and familiar, the way that person would.\n`;
+    }
+    if (onboarding.aboutResident) {
+      prompt += `- About ${name}: ${onboarding.aboutResident}\n`;
+    }
+    if (onboarding.coreMemories?.length) {
+      prompt += `- Cherished memories to reference naturally when it feels right:\n`;
+      for (const m of onboarding.coreMemories) prompt += `  - ${m}\n`;
+    }
+    if (onboarding.boundaries?.length) {
+      prompt += `- Topics to NEVER bring up: ${onboarding.boundaries.join(", ")}\n`;
+    }
+    prompt += `\n`;
+  }
 
   if (commDNA) {
     prompt += `## Communication Style (match this exactly)\n`;
