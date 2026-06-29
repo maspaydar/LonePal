@@ -14,6 +14,7 @@ import {
   type CommunityBroadcast, type InsertCommunityBroadcast,
   type MobileToken, type InsertMobileToken,
   type SuperAdmin, type InsertSuperAdmin,
+  type SuperAdminAuditLog, type InsertSuperAdminAuditLog,
   type Facility, type InsertFacility,
   type FacilityHealthLog, type InsertFacilityHealthLog,
   type MaintenanceLog, type InsertMaintenanceLog,
@@ -27,7 +28,7 @@ import {
   type Memory, type InsertMemory,
   users, entities, residents, sensors, esp32SensorData, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
-  communityBroadcasts, mobileTokens, superAdmins, facilities, facilityHealthLogs,
+  communityBroadcasts, mobileTokens, superAdmins, superAdminAuditLogs, facilities, facilityHealthLogs,
   maintenanceLogs, userPreferences, deviceSettings, devicePairingCodes, speakerEvents,
   centralLogEntries, recoveryScripts, recoveryExecutionLogs, memories,
 } from "@shared/schema";
@@ -128,6 +129,8 @@ export interface IStorage {
   listSuperAdmins(): Promise<SuperAdmin[]>;
   createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin>;
   updateSuperAdmin(id: number, data: Partial<SuperAdmin>): Promise<SuperAdmin | undefined>;
+  createSuperAdminAuditLog(entry: InsertSuperAdminAuditLog): Promise<SuperAdminAuditLog>;
+  listSuperAdminAuditLogs(limit?: number): Promise<SuperAdminAuditLog[]>;
 
   getFacilities(): Promise<Facility[]>;
   getFacility(id: number): Promise<Facility | undefined>;
@@ -740,6 +743,15 @@ export class DatabaseStorage implements IStorage {
   async updateSuperAdmin(id: number, data: Partial<SuperAdmin>): Promise<SuperAdmin | undefined> {
     const [updated] = await db.update(superAdmins).set(data as any).where(eq(superAdmins.id, id)).returning();
     return updated;
+  }
+
+  async createSuperAdminAuditLog(entry: InsertSuperAdminAuditLog): Promise<SuperAdminAuditLog> {
+    const [created] = await db.insert(superAdminAuditLogs).values(entry).returning();
+    return created;
+  }
+
+  async listSuperAdminAuditLogs(limit = 100): Promise<SuperAdminAuditLog[]> {
+    return db.select().from(superAdminAuditLogs).orderBy(desc(superAdminAuditLogs.createdAt)).limit(limit);
   }
 
   async getFacilities(): Promise<Facility[]> {

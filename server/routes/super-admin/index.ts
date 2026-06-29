@@ -278,6 +278,15 @@ router.post("/auth/register", requireSuperAdminOrBootstrap, async (req, res) => 
       fullName,
     });
 
+    const actor = (req as any).superAdmin as { superAdminId: number; email: string } | undefined;
+    await storage.createSuperAdminAuditLog({
+      actorId: actor?.superAdminId ?? null,
+      actorEmail: actor?.email ?? "bootstrap",
+      targetId: admin.id,
+      targetEmail: admin.email,
+      action: "create",
+    });
+
     const token = signSuperAdminToken({
       superAdminId: admin.id,
       email: admin.email,
@@ -363,6 +372,15 @@ router.patch("/admins/:id", superAdminAuthMiddleware, async (req: any, res) => {
     const updated = await storage.updateSuperAdmin(id, { isActive });
     if (!updated) return res.status(404).json({ error: "Super admin not found" });
 
+    const actor = req.superAdmin as { superAdminId: number; email: string } | undefined;
+    await storage.createSuperAdminAuditLog({
+      actorId: actor?.superAdminId ?? null,
+      actorEmail: actor?.email ?? null,
+      targetId: updated.id,
+      targetEmail: updated.email,
+      action: isActive ? "reactivate" : "deactivate",
+    });
+
     res.json({
       id: updated.id,
       email: updated.email,
@@ -374,6 +392,16 @@ router.patch("/admins/:id", superAdminAuthMiddleware, async (req: any, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to update super admin" });
+  }
+});
+
+router.get("/admins/audit-log", superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const logs = await storage.listSuperAdminAuditLogs(limit);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load audit log" });
   }
 });
 

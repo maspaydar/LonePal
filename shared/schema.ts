@@ -223,6 +223,16 @@ export const superAdmins = pgTable("super_admins", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const superAdminAuditLogs = pgTable("super_admin_audit_logs", {
+  id: serial("id").primaryKey(),
+  actorId: integer("actor_id"),
+  actorEmail: text("actor_email"),
+  targetId: integer("target_id"),
+  targetEmail: text("target_email"),
+  action: text("action").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const facilities = pgTable("facilities", {
   id: serial("id").primaryKey(),
   facilityId: text("facility_id").notNull().unique(),
@@ -397,6 +407,7 @@ export const insertRecoveryScriptSchema = createInsertSchema(recoveryScripts).om
 export const insertRecoveryExecutionLogSchema = createInsertSchema(recoveryExecutionLogs).omit({ id: true, createdAt: true });
 
 export const insertSuperAdminSchema = createInsertSchema(superAdmins).omit({ id: true, createdAt: true, lastLoginAt: true });
+export const insertSuperAdminAuditLogSchema = createInsertSchema(superAdminAuditLogs).omit({ id: true, createdAt: true });
 export const insertFacilitySchema = createInsertSchema(facilities).omit({ id: true, createdAt: true, lastHealthCheck: true, lastHealthStatus: true, uptimePercent: true });
 
 export const facilityRegistrationSchema = z.object({
@@ -477,6 +488,8 @@ export type MobileToken = typeof mobileTokens.$inferSelect;
 export type InsertMobileToken = z.infer<typeof insertMobileTokenSchema>;
 export type SuperAdmin = typeof superAdmins.$inferSelect;
 export type InsertSuperAdmin = z.infer<typeof insertSuperAdminSchema>;
+export type SuperAdminAuditLog = typeof superAdminAuditLogs.$inferSelect;
+export type InsertSuperAdminAuditLog = z.infer<typeof insertSuperAdminAuditLogSchema>;
 export type Facility = typeof facilities.$inferSelect;
 export type InsertFacility = z.infer<typeof insertFacilitySchema>;
 export type FacilityHealthLog = typeof facilityHealthLogs.$inferSelect;

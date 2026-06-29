@@ -49,6 +49,7 @@ import {
   UserCheck,
   UserPlus,
   ShieldCheck,
+  History,
 } from "lucide-react";
 import {
   Dialog,
@@ -863,6 +864,16 @@ interface SuperAdminRow {
   createdAt: string | null;
 }
 
+interface SuperAdminAuditRow {
+  id: number;
+  actorId: number | null;
+  actorEmail: string | null;
+  targetId: number | null;
+  targetEmail: string | null;
+  action: string;
+  createdAt: string | null;
+}
+
 function AdminsPanel({ currentAdminId }: { currentAdminId?: number }) {
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
@@ -873,6 +884,15 @@ function AdminsPanel({ currentAdminId }: { currentAdminId?: number }) {
     queryFn: async () => {
       const res = await fetch("/api/super-admin/admins", { headers: authHeaders() });
       if (!res.ok) throw new Error("Failed to load admins");
+      return res.json();
+    },
+  });
+
+  const { data: auditLogs, isLoading: auditLoading } = useQuery<SuperAdminAuditRow[]>({
+    queryKey: ["/api/super-admin/admins/audit-log"],
+    queryFn: async () => {
+      const res = await fetch("/api/super-admin/admins/audit-log", { headers: authHeaders() });
+      if (!res.ok) throw new Error("Failed to load audit log");
       return res.json();
     },
   });
@@ -893,6 +913,7 @@ function AdminsPanel({ currentAdminId }: { currentAdminId?: number }) {
       setForm({ fullName: "", email: "", password: "" });
       setShowCreate(false);
       queryClient.invalidateQueries({ queryKey: ["/api/super-admin/admins"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/admins/audit-log"] });
     },
     onError: (err: Error) => {
       toast({ title: "Could not create admin", description: err.message, variant: "destructive" });
@@ -913,6 +934,7 @@ function AdminsPanel({ currentAdminId }: { currentAdminId?: number }) {
     onSuccess: (_data, variables) => {
       toast({ title: variables.isActive ? "Admin reactivated" : "Admin deactivated" });
       queryClient.invalidateQueries({ queryKey: ["/api/super-admin/admins"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/super-admin/admins/audit-log"] });
     },
     onError: (err: Error) => {
       toast({ title: "Action failed", description: err.message, variant: "destructive" });
@@ -922,6 +944,11 @@ function AdminsPanel({ currentAdminId }: { currentAdminId?: number }) {
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return "Never";
     return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const formatDateTime = (dateStr: string | null) => {
+    if (!dateStr) return "—";
+    return new Date(dateStr).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   };
 
   function handleCreate(e: React.FormEvent) {
@@ -1071,6 +1098,52 @@ function AdminsPanel({ currentAdminId }: { currentAdminId?: number }) {
             </table>
           </div>
         )}
+
+        <div className="pt-4 border-t" data-testid="section-admin-audit-log">
+          <div className="flex items-center gap-2 mb-3">
+            <History className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Account Change History</h3>
+          </div>
+          {auditLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <RefreshCw className="w-4 h-4 animate-spin" /> Loading history...
+            </div>
+          ) : (auditLogs?.length ?? 0) === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">No account changes recorded yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-2 pr-3 font-medium">When</th>
+                    <th className="py-2 pr-3 font-medium">Action</th>
+                    <th className="py-2 pr-3 font-medium">Target</th>
+                    <th className="py-2 pr-3 font-medium">By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs?.map((log) => (
+                    <tr key={log.id} className="border-b last:border-0" data-testid={`row-audit-${log.id}`}>
+                      <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap" data-testid={`text-audit-time-${log.id}`}>
+                        {formatDateTime(log.createdAt)}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <Badge
+                          variant={log.action === "deactivate" ? "destructive" : "secondary"}
+                          data-testid={`badge-audit-action-${log.id}`}
+                        >
+                          {log.action === "create" ? "Created" : log.action === "reactivate" ? "Reactivated" : log.action === "deactivate" ? "Deactivated" : log.action}
+                        </Badge>
+                      </td>
+                      <td className="py-2 pr-3" data-testid={`text-audit-target-${log.id}`}>{log.targetEmail ?? "—"}</td>
+                      <td className="py-2 pr-3 text-muted-foreground" data-testid={`text-audit-actor-${log.id}`}>{log.actorEmail ?? "system"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
