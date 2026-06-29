@@ -251,107 +251,233 @@ export async function generateAICheckIn(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dual-Agent architecture
+//
+// Every resident message runs two isolated operations:
+//   - Agent 1 (Companion): produces ONLY a warm conversational reply. It never
+//     emits analysis, JSON, ratings, or safety tags.
+//   - Agent 2 (Monitor): a silent analyst that never speaks to the resident. It
+//     returns a structured verdict (safety, mood, risk) used by staff systems.
+// ---------------------------------------------------------------------------
+
+export interface MonitorVerdict {
+  safe: boolean;
+  needsHelp: boolean;
+  riskLevel: "none" | "low" | "medium" | "high";
+  mood: string;
+  moodScore: number;
+  summary: string;
+}
+
+const DEFAULT_VERDICT: MonitorVerdict = {
+  safe: true,
+  needsHelp: false,
+  riskLevel: "none",
+  mood: "Neutral",
+  moodScore: 3,
+  summary: "",
+};
+
+// When the Monitor cannot produce a real assessment (model error or unparseable
+// output), we must NOT silently assume the resident is fine. Flag for staff
+// review so a genuine emergency is never suppressed by an AI outage.
+const INDETERMINATE_VERDICT: MonitorVerdict = {
+  safe: true,
+  needsHelp: true,
+  riskLevel: "medium",
+  mood: "Unable to assess",
+  moodScore: 3,
+  summary: "Automated safety check could not assess this message; flagging for staff review.",
+};
+
+// Defense-in-depth: even though the Companion is instructed never to emit
+// analysis, strip any leaked safety tags / JSON / fenced blocks before the text
+// reaches the resident.
+function stripCompanionArtifacts(text: string): string {
+  let out = text;
+  const markerIdx = out.search(/```|SAFETY_CHECK/i);
+  if (markerIdx >= 0) out = out.slice(0, markerIdx);
+  out = out.replace(/\{[\s\S]*"(?:safe|needsHelp|riskLevel|moodScore|mood|summary)"[\s\S]*\}\s*$/i, "");
+  return out.trim();
+}
+
+function buildCompanionSystemInstruction(personaPrompt: string, name: string, voice: boolean): string {
+  return `${personaPrompt}
+
+You are ${name}'s warm, caring AI companion${voice ? ", speaking with them through a voice interface on their phone" : ""}.
+Talk to ${name} like a trusted friend. Be warm, natural, and genuinely interested in them.
+${voice ? "Keep responses conversational and concise (2-4 sentences). Do not use emojis, markdown, or special formatting — your words will be read aloud.\n" : "Keep responses warm and concise (2-4 sentences).\n"}GUARDRAILS:
+- You ONLY have a friendly conversation. NEVER output analysis, ratings, scores, JSON, labels, or safety tags of any kind — just talk to ${name}.
+- Never use clinical or diagnostic language. You are a companion, not a nurse or doctor.
+- Do not give medical advice or diagnoses.
+- If ${name} mentions pain, a fall, or needing help, respond with genuine warmth and concern and gently reassure them that staff will be notified — caring, never alarming.`;
+}
+
+/**
+ * Agent 1 (Companion) — synchronous. Returns ONLY the spoken reply.
+ */
+export async function generateCompanionReply(
+  resident: Resident,
+  userMessage: string,
+  conversationHistory: { role: string; content: string }[]
+): Promise<string> {
+  const name = resident.preferredName || resident.firstName;
+  const aiClient = await getAIForEntity(resident.entityId);
+  if (!aiClient) {
+    return `Thank you for responding, ${name}. I'm glad to hear from you!`;
+  }
+
+  const personaPrompt = await getCachedPersonaPrompt(resident);
+  const systemInstruction = buildCompanionSystemInstruction(personaPrompt, name, false);
+
+  const contents: any[] = [];
+  for (const msg of buildConversationContext(conversationHistory)) {
+    contents.push({
+      role: msg.role === "assistant" ? "model" : "user",
+      parts: [{ text: msg.content }],
+    });
+  }
+  contents.push({ role: "user", parts: [{ text: userMessage }] });
+
+  try {
+    const response = await aiClient.models.generateContent({
+      model: getModelName(),
+      contents,
+      config: { systemInstruction, maxOutputTokens: 300, temperature: 0.7 },
+    });
+    return stripCompanionArtifacts(response.text || "") || `Thank you for responding, ${name}.`;
+  } catch (error) {
+    log(`Companion reply error: ${error}`, "ai-engine");
+    return `Thank you for responding, ${name}. A staff member will follow up with you.`;
+  }
+}
+
+function parseMonitorVerdict(text: string): MonitorVerdict | null {
+  try {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const p = JSON.parse(match[0]);
+    const riskLevel = ["none", "low", "medium", "high"].includes(p.riskLevel) ? p.riskLevel : "none";
+    let moodScore = Number(p.moodScore);
+    if (!Number.isFinite(moodScore)) moodScore = 3;
+    moodScore = Math.min(5, Math.max(1, Math.round(moodScore)));
+    return {
+      safe: p.safe !== false,
+      needsHelp: p.needsHelp === true,
+      riskLevel: riskLevel as MonitorVerdict["riskLevel"],
+      mood: typeof p.mood === "string" && p.mood.trim() ? p.mood.trim() : "Neutral",
+      moodScore,
+      summary: typeof p.summary === "string" ? p.summary.trim() : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Agent 2 (Monitor) — silent analytical agent. Never speaks to the resident.
+ * Returns a structured verdict. Falls back safely on parse failure or no key.
+ */
+export async function runMonitorAgent(
+  resident: Resident,
+  userMessage: string,
+  conversationHistory: { role: string; content: string }[]
+): Promise<MonitorVerdict> {
+  const name = resident.preferredName || resident.firstName;
+  const aiClient = await getAIForEntity(resident.entityId);
+  if (!aiClient) {
+    return { ...DEFAULT_VERDICT };
+  }
+
+  const ctx = buildConversationContext(conversationHistory);
+  const recentContext = ctx
+    .map(m => `${m.role === "assistant" ? "Companion" : "Resident"}: ${m.content}`)
+    .join("\n");
+
+  const systemInstruction = `You are a SILENT safety-monitoring analyst for a senior-care facility. You NEVER speak to the resident and NEVER produce conversational text. You only assess ${name}'s wellbeing and output a single structured JSON assessment. You are analysis-only.`;
+
+  const analysisPrompt = `Recent conversation context:
+${recentContext || "(no prior context)"}
+
+The resident (${name}) just said: "${userMessage}"
+
+Assess their current state. Any response — even a sad or negative one — means they are conscious and responsive (safe=true). Set "needsHelp" to true ONLY if they mention pain, a fall, being unable to move, a medical emergency, or explicitly ask for help.
+
+Return ONLY a JSON object with this exact shape:
+{
+  "safe": true,
+  "needsHelp": false,
+  "riskLevel": "none",
+  "mood": "<one short phrase, max 8 words>",
+  "moodScore": 3,
+  "summary": "<one sentence about their state, max 20 words>"
+}
+riskLevel must be one of: "none", "low", "medium", "high". moodScore is 1-5 (1=very concerning, 5=happy/engaged).`;
+
+  try {
+    const response = await aiClient.models.generateContent({
+      model: getModelName(),
+      contents: [{ role: "user", parts: [{ text: analysisPrompt }] }],
+      config: {
+        systemInstruction,
+        maxOutputTokens: 250,
+        temperature: 0.2,
+        responseMimeType: "application/json",
+      },
+    });
+    const verdict = parseMonitorVerdict(response.text || "");
+    // Unparseable output is a Monitor failure, not an "all clear" — escalate.
+    return verdict || { ...INDETERMINATE_VERDICT };
+  } catch (error) {
+    log(`Monitor agent error: ${error}`, "ai-engine");
+    // A model/transport failure must not silently suppress a real emergency.
+    return { ...INDETERMINATE_VERDICT };
+  }
+}
+
+/**
+ * Convenience composition used by the web conversation endpoint: runs the
+ * Companion and Monitor in parallel and maps the verdict to the legacy shape.
+ */
 export async function processResidentResponse(
   resident: Resident,
   scenarioId: number,
   userMessage: string,
   conversationHistory: { role: string; content: string }[]
-): Promise<{ aiResponse: string; isResolved: boolean; shouldEscalate: boolean }> {
-  try {
-    const aiClient = await getAIForEntity(resident.entityId);
-    if (!aiClient) {
-      return {
-        aiResponse: `Thank you for responding, ${resident.preferredName || resident.firstName}. I'm glad to hear from you!`,
-        isResolved: true,
-        shouldEscalate: false,
-      };
-    }
-
-    const personaPrompt = await getCachedPersonaPrompt(resident);
-    const ctx = buildConversationContext(conversationHistory);
-
-    const analysisPrompt = `${personaPrompt}
-
-You are analyzing a response from ${resident.preferredName || resident.firstName} during a safety check-in.
-Their message: "${userMessage}"
-
-Based on their response, determine:
-1. Are they safe and conscious? (any response, even negative mood, means they are conscious and responsive)
-2. Do they seem to need immediate help? (mentions of pain, falling, can't move, etc.)
-3. Provide a warm, appropriate response.
-
-Respond in this exact JSON format:
-{"safe": true/false, "needsHelp": true/false, "response": "your caring response here"}`;
-
-    const contents: any[] = [];
-    for (const msg of ctx) {
-      contents.push({
-        role: msg.role === "assistant" ? "model" : "user",
-        parts: [{ text: msg.content }],
-      });
-    }
-    contents.push({ role: "user", parts: [{ text: analysisPrompt }] });
-
-    const response = await aiClient.models.generateContent({
-      model: getModelName(),
-      contents,
-      config: { maxOutputTokens: 300, temperature: 0.3 },
-    });
-
-    const text = response.text || "";
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return {
-          aiResponse: parsed.response || `Thank you for responding, ${resident.preferredName || resident.firstName}.`,
-          isResolved: parsed.safe && !parsed.needsHelp,
-          shouldEscalate: parsed.needsHelp === true,
-        };
-      }
-    } catch {
-    }
-
-    return {
-      aiResponse: text || `Thank you for responding, ${resident.preferredName || resident.firstName}.`,
-      isResolved: true,
-      shouldEscalate: false,
-    };
-  } catch (error) {
-    log(`AI response processing error: ${error}`, "ai-engine");
-    return {
-      aiResponse: `Thank you for responding, ${resident.preferredName || resident.firstName}. A staff member will follow up with you.`,
-      isResolved: false,
-      shouldEscalate: true,
-    };
-  }
+): Promise<{ aiResponse: string; isResolved: boolean; shouldEscalate: boolean; verdict: MonitorVerdict }> {
+  const [aiResponse, verdict] = await Promise.all([
+    generateCompanionReply(resident, userMessage, conversationHistory),
+    runMonitorAgent(resident, userMessage, conversationHistory),
+  ]);
+  return {
+    aiResponse,
+    isResolved: verdict.safe && !verdict.needsHelp,
+    shouldEscalate: verdict.needsHelp,
+    verdict,
+  };
 }
 
+/**
+ * Agent 1 (Companion) — streaming. Emits ONLY the spoken reply. Safety analysis
+ * is handled separately by the Monitor agent, so nothing analytical leaks here.
+ */
 export async function streamCompanionResponse(
   resident: Resident,
   userMessage: string,
   conversationHistory: { role: string; content: string }[],
   onChunk: (text: string) => void
-): Promise<{ fullResponse: string; isResolved: boolean; shouldEscalate: boolean }> {
+): Promise<{ fullResponse: string }> {
+  const name = resident.preferredName || resident.firstName;
   const aiClient = await getAIForEntity(resident.entityId);
   if (!aiClient) {
-    const fallback = `Thank you for responding, ${resident.preferredName || resident.firstName}. I'm glad to hear from you!`;
+    const fallback = `Thank you for responding, ${name}. I'm glad to hear from you!`;
     onChunk(fallback);
-    return { fullResponse: fallback, isResolved: true, shouldEscalate: false };
+    return { fullResponse: fallback };
   }
 
   const personaPrompt = await getCachedPersonaPrompt(resident);
-  const name = resident.preferredName || resident.firstName;
-
-  const systemInstruction = `${personaPrompt}
-
-You are having a friendly voice conversation with ${name}. They are speaking to you through a voice interface on their phone.
-Keep your responses conversational, warm, and concise (2-4 sentences). Speak naturally as if talking to a friend.
-Do not use emojis, markdown, or special formatting - this will be read aloud.
-If they mention pain, falling, or needing help, express concern and let them know staff will be notified.
-
-IMPORTANT: First respond naturally, then on a NEW LINE add a JSON safety assessment:
-SAFETY_CHECK: {"safe": true/false, "needsHelp": true/false}`;
+  const systemInstruction = buildCompanionSystemInstruction(personaPrompt, name, true);
 
   const contents: any[] = [];
   for (const msg of conversationHistory) {
@@ -374,38 +500,26 @@ SAFETY_CHECK: {"safe": true/false, "needsHelp": true/false}`;
     });
 
     let fullResponse = "";
+    let emitted = "";
     for await (const chunk of stream) {
       const text = chunk.text || "";
-      if (text) {
-        fullResponse += text;
-        const safetyIdx = fullResponse.indexOf("SAFETY_CHECK:");
-        if (safetyIdx === -1) {
-          onChunk(text);
-        } else {
-          const beforeSafety = text.split("SAFETY_CHECK:")[0];
-          if (beforeSafety) onChunk(beforeSafety);
-        }
+      if (!text) continue;
+      fullResponse += text;
+      // Stream only the sanitized portion; once an analysis marker appears we
+      // stop emitting so nothing analytical is ever read aloud to the resident.
+      const sanitized = stripCompanionArtifacts(fullResponse);
+      if (sanitized.length > emitted.length) {
+        onChunk(sanitized.slice(emitted.length));
+        emitted = sanitized;
       }
     }
 
-    let isResolved = true;
-    let shouldEscalate = false;
-    const safetyMatch = fullResponse.match(/SAFETY_CHECK:\s*(\{[\s\S]*?\})/);
-    if (safetyMatch) {
-      try {
-        const safety = JSON.parse(safetyMatch[1]);
-        isResolved = safety.safe !== false;
-        shouldEscalate = safety.needsHelp === true;
-      } catch {}
-      fullResponse = fullResponse.replace(/\n?SAFETY_CHECK:[\s\S]*$/, "").trim();
-    }
-
-    return { fullResponse, isResolved, shouldEscalate };
+    return { fullResponse: emitted || stripCompanionArtifacts(fullResponse) };
   } catch (error) {
     log(`Stream error: ${error}`, "ai-engine");
     const fallback = `I'm sorry ${name}, I'm having trouble connecting right now. Please try again in a moment.`;
     onChunk(fallback);
-    return { fullResponse: fallback, isResolved: true, shouldEscalate: false };
+    return { fullResponse: fallback };
   }
 }
 

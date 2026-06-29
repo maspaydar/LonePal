@@ -4,12 +4,69 @@ import bcrypt from "bcryptjs";
 import { mobileAuthMiddleware, signMobileToken } from "../../middleware/mobile-auth";
 import { mobileLoginSchema, insertUserPreferencesSchema } from "@shared/schema";
 import { emergencyService } from "../../services/emergency-service";
-import { processResidentResponse, streamCompanionResponse, transcribeAudio, buildConversationContext, generateOnboardingResponse } from "../../ai-engine";
+import { generateCompanionReply, runMonitorAgent, streamCompanionResponse, transcribeAudio, buildConversationContext, generateOnboardingResponse, type MonitorVerdict } from "../../ai-engine";
 import { broadcastToClients } from "../../ws-broadcast";
 import { log } from "../../index";
 import { dailyLogger } from "../../daily-logger";
 
 const router = Router();
+
+/**
+ * Persists the Monitor agent's verdict as an observation and applies it to the
+ * resident's safety state: resolving/escalating the active scenario, updating
+ * resident status, and creating staff alerts. Mirrors the previous safety
+ * behavior but is now driven by the silent Monitor agent.
+ */
+async function applyMonitorVerdict(opts: {
+  verdict: MonitorVerdict;
+  resident: { id: number; entityId: number; preferredName: string | null; firstName: string };
+  conversationId: number;
+  message: string;
+  activeScenario?: { id: number } | null;
+  via: string;
+}): Promise<void> {
+  const { verdict, resident, conversationId, message, activeScenario, via } = opts;
+  const residentName = resident.preferredName || resident.firstName;
+
+  try {
+    await storage.createMonitoringObservation({
+      entityId: resident.entityId,
+      residentId: resident.id,
+      conversationId,
+      safe: verdict.safe,
+      needsHelp: verdict.needsHelp,
+      riskLevel: verdict.riskLevel,
+      mood: verdict.mood,
+      moodScore: verdict.moodScore,
+      summary: verdict.summary,
+      raw: verdict as any,
+    });
+  } catch (err) {
+    log(`Failed to persist monitor observation: ${err}`, "mobile-api");
+  }
+
+  const isResolved = verdict.safe && !verdict.needsHelp;
+
+  if (verdict.needsHelp && activeScenario) {
+    await storage.updateActiveScenario(activeScenario.id, { status: "staff_alerted" } as any);
+    const alertReason = verdict.summary?.trim()
+      ? verdict.summary.trim()
+      : `Resident indicated they may need assistance${via ? ` via ${via}` : ""}.`;
+    await storage.createAlert({
+      entityId: resident.entityId,
+      residentId: resident.id,
+      scenarioId: activeScenario.id,
+      severity: "critical",
+      title: `${residentName} needs help`,
+      message: `${alertReason} Last message: "${message}"`,
+    });
+    broadcastToClients({ type: "alert", data: { residentId: resident.id, severity: "critical" } });
+  } else if (isResolved && activeScenario) {
+    await storage.resolveActiveScenario(activeScenario.id, "resident_response");
+    await storage.updateResidentStatus(resident.id, "safe", new Date());
+    broadcastToClients({ type: "scenario_resolved", data: { id: activeScenario.id, residentId: resident.id } });
+  }
+}
 
 /**
  * POST /api/mobile/respond
@@ -56,28 +113,29 @@ router.post("/respond", mobileAuthMiddleware, async (req, res) => {
     const activeScens = await storage.getActiveScenariosForResident(jwtResidentId);
     const activeScenario = activeScens.find(s => s.id === Number(req.body.scenarioId)) || activeScens[0];
 
-    const result = await processResidentResponse(resident, activeScenario?.id || 0, message, history);
+    // Dual-Agent: kick off the silent Monitor immediately, but never let it
+    // block delivery of the Companion's reply to the resident.
+    const monitorPromise = runMonitorAgent(resident, message, history);
 
-    await storage.createMessage({ conversationId: conv.id, role: "assistant", content: result.aiResponse });
+    const aiResponse = await generateCompanionReply(resident, message, history);
+    await storage.createMessage({ conversationId: conv.id, role: "assistant", content: aiResponse });
 
-    if (result.isResolved && activeScenario) {
-      await storage.resolveActiveScenario(activeScenario.id, "resident_response");
-      await storage.updateResidentStatus(jwtResidentId, "safe", new Date());
-      broadcastToClients({ type: "scenario_resolved", data: { id: activeScenario.id, residentId: jwtResidentId } });
-    } else if (result.shouldEscalate && activeScenario) {
-      await storage.updateActiveScenario(activeScenario.id, { status: "staff_alerted" } as any);
-      await storage.createAlert({
-        entityId: resident.entityId,
-        residentId: jwtResidentId,
-        scenarioId: activeScenario.id,
-        severity: "critical",
-        title: `${resident.preferredName || resident.firstName} needs help`,
-        message: `Resident indicated they may need assistance. Last message: "${message}"`,
-      });
-      broadcastToClients({ type: "alert", data: { residentId: jwtResidentId, severity: "critical" } });
-    }
+    // Respond to the resident right away; the Monitor verdict (alerts, scenario
+    // resolution, persisted observation) is applied asynchronously afterwards.
+    res.json({ response: aiResponse, isResolved: true, conversationId: conv.id });
 
-    res.json({ response: result.aiResponse, isResolved: result.isResolved, conversationId: conv.id });
+    void monitorPromise
+      .then((verdict) =>
+        applyMonitorVerdict({
+          verdict,
+          resident,
+          conversationId: conv.id,
+          message,
+          activeScenario,
+          via: "",
+        })
+      )
+      .catch((err) => log(`Monitor processing failed (respond): ${err}`, "mobile-api"));
   } catch (error) {
     log(`Mobile respond error: ${error}`, "mobile-api");
     res.status(500).json({ error: "Failed to process response" });
@@ -152,6 +210,10 @@ router.post("/respond-stream", mobileAuthMiddleware, async (req, res) => {
 
     res.write(`data: ${JSON.stringify({ type: "transcription", text: userMessage })}\n\n`);
 
+    // Dual-Agent: the silent Monitor runs in parallel so it never blocks the
+    // Companion's streamed reply to the resident.
+    const monitorPromise = runMonitorAgent(resident, userMessage, history);
+
     const result = await streamCompanionResponse(
       resident,
       userMessage,
@@ -163,24 +225,19 @@ router.post("/respond-stream", mobileAuthMiddleware, async (req, res) => {
 
     await storage.createMessage({ conversationId: conv.id, role: "assistant", content: result.fullResponse });
 
-    if (result.shouldEscalate && activeScenario) {
-      await storage.updateActiveScenario(activeScenario.id, { status: "staff_alerted" } as any);
-      await storage.createAlert({
-        entityId: resident.entityId,
-        residentId: jwtResidentId,
-        scenarioId: activeScenario.id,
-        severity: "critical",
-        title: `${resident.preferredName || resident.firstName} needs help`,
-        message: `Resident indicated they may need assistance via voice. Last message: "${userMessage}"`,
-      });
-      broadcastToClients({ type: "alert", data: { residentId: jwtResidentId, severity: "critical" } });
-    } else if (result.isResolved && activeScenario) {
-      await storage.resolveActiveScenario(activeScenario.id, "resident_response");
-      await storage.updateResidentStatus(jwtResidentId, "safe", new Date());
-      broadcastToClients({ type: "scenario_resolved", data: { id: activeScenario.id, residentId: jwtResidentId } });
-    }
+    const verdict = await monitorPromise;
+    const isResolved = verdict.safe && !verdict.needsHelp;
 
-    res.write(`data: ${JSON.stringify({ type: "done", isResolved: result.isResolved, conversationId: conv.id })}\n\n`);
+    await applyMonitorVerdict({
+      verdict,
+      resident,
+      conversationId: conv.id,
+      message: userMessage,
+      activeScenario,
+      via: "voice",
+    });
+
+    res.write(`data: ${JSON.stringify({ type: "done", isResolved, conversationId: conv.id })}\n\n`);
     res.end();
   } catch (error) {
     log(`Mobile stream respond error: ${error}`, "mobile-api");

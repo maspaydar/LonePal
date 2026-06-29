@@ -1404,7 +1404,13 @@ export async function registerRoutes(
           let mood = "No recent conversations";
           let moodScore = 0;
 
-          if (userMsgs.length > 0) {
+          // Prefer the latest stored Monitor observation (dual-agent) so we don't
+          // recompute mood from scratch on every dashboard load.
+          const latestObservation = await storage.getLatestMonitoringObservation(resident.id);
+          if (latestObservation) {
+            mood = latestObservation.summary?.trim() || latestObservation.mood || mood;
+            moodScore = latestObservation.moodScore;
+          } else if (userMsgs.length > 0) {
             const combined = userMsgs.map(m => m.content).join(" ");
             const ai = await getAIForInsightsEntity(entityId);
 

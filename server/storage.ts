@@ -26,11 +26,12 @@ import {
   type RecoveryScript, type InsertRecoveryScript,
   type RecoveryExecutionLog, type InsertRecoveryExecutionLog,
   type Memory, type InsertMemory,
+  type MonitoringObservation, type InsertMonitoringObservation,
   users, entities, residents, sensors, esp32SensorData, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, superAdminAuditLogs, facilities, facilityHealthLogs,
   maintenanceLogs, userPreferences, deviceSettings, devicePairingCodes, speakerEvents,
-  centralLogEntries, recoveryScripts, recoveryExecutionLogs, memories,
+  centralLogEntries, recoveryScripts, recoveryExecutionLogs, memories, monitoringObservations,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql, gte, inArray } from "drizzle-orm";
@@ -195,6 +196,9 @@ export interface IStorage {
   getMemoriesByResident(residentId: number): Promise<Memory[]>;
   getMemoriesByTopic(residentId: number, topic: string): Promise<Memory[]>;
   deleteMemory(id: number): Promise<void>;
+
+  createMonitoringObservation(observation: InsertMonitoringObservation): Promise<MonitoringObservation>;
+  getLatestMonitoringObservation(residentId: number): Promise<MonitoringObservation | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1095,6 +1099,19 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMemory(id: number): Promise<void> {
     await db.delete(memories).where(eq(memories.id, id));
+  }
+
+  async createMonitoringObservation(observation: InsertMonitoringObservation): Promise<MonitoringObservation> {
+    const [created] = await db.insert(monitoringObservations).values(observation).returning();
+    return created;
+  }
+
+  async getLatestMonitoringObservation(residentId: number): Promise<MonitoringObservation | undefined> {
+    const [obs] = await db.select().from(monitoringObservations)
+      .where(eq(monitoringObservations.residentId, residentId))
+      .orderBy(desc(monitoringObservations.createdAt))
+      .limit(1);
+    return obs;
   }
 }
 

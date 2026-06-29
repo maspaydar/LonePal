@@ -174,6 +174,24 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const monitoringObservations = pgTable("monitoring_observations", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").notNull(),
+  residentId: integer("resident_id").notNull(),
+  conversationId: integer("conversation_id"),
+  messageId: integer("message_id"),
+  safe: boolean("safe").notNull().default(true),
+  needsHelp: boolean("needs_help").notNull().default(false),
+  riskLevel: text("risk_level").notNull().default("none"),
+  mood: text("mood").notNull().default("Neutral"),
+  moodScore: integer("mood_score").notNull().default(3),
+  summary: text("summary"),
+  raw: jsonb("raw"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertMonitoringObservationSchema = createInsertSchema(monitoringObservations).omit({ id: true, createdAt: true });
+
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertEntitySchema = createInsertSchema(entities).omit({ id: true, createdAt: true });
 export const insertUnitSchema = createInsertSchema(units).omit({ id: true, createdAt: true });
@@ -482,6 +500,8 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type MonitoringObservation = typeof monitoringObservations.$inferSelect;
+export type InsertMonitoringObservation = z.infer<typeof insertMonitoringObservationSchema>;
 export type CommunityBroadcast = typeof communityBroadcasts.$inferSelect;
 export type InsertCommunityBroadcast = z.infer<typeof insertCommunityBroadcastSchema>;
 export type MobileToken = typeof mobileTokens.$inferSelect;
