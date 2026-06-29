@@ -45,6 +45,8 @@ export const units = pgTable("units", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const onboardingStatusEnum = pgEnum("onboarding_status", ["incomplete", "in_progress", "completed"]);
+
 export const residents = pgTable("residents", {
   id: serial("id").primaryKey(),
   entityId: integer("entity_id").notNull(),
@@ -65,6 +67,8 @@ export const residents = pgTable("residents", {
   isActive: boolean("is_active").notNull().default(true),
   lastActivityAt: timestamp("last_activity_at"),
   status: text("status").notNull().default("safe"),
+  onboardingStatus: onboardingStatusEnum("onboarding_status").notNull().default("incomplete"),
+  onboardingProfile: jsonb("onboarding_profile"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
@@ -484,6 +488,13 @@ export type Unit = typeof units.$inferSelect;
 export type InsertUnit = z.infer<typeof insertUnitSchema>;
 export type Resident = typeof residents.$inferSelect;
 export type InsertResident = z.infer<typeof insertResidentSchema>;
+export type OnboardingStatus = (typeof onboardingStatusEnum.enumValues)[number];
+export interface OnboardingProfile {
+  relationshipType?: string;
+  companionName?: string;
+  coreMemories?: string[];
+  boundaries?: string[];
+}
 export type Sensor = typeof sensors.$inferSelect;
 export type InsertSensor = z.infer<typeof insertSensorSchema>;
 export type Esp32SensorData = typeof esp32SensorData.$inferSelect;

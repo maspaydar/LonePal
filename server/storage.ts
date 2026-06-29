@@ -2,7 +2,7 @@ import {
   type User, type InsertUser,
   type Entity, type InsertEntity,
   type Unit, type InsertUnit,
-  type Resident, type InsertResident,
+  type Resident, type InsertResident, type OnboardingStatus, type OnboardingProfile,
   type Sensor, type InsertSensor,
   type Esp32SensorData, type InsertEsp32SensorData,
   type MotionEvent, type InsertMotionEvent,
@@ -62,6 +62,7 @@ export interface IStorage {
   createResident(resident: InsertResident): Promise<Resident>;
   updateResident(id: number, data: Partial<InsertResident>): Promise<Resident | undefined>;
   updateResidentStatus(id: number, status: string, lastActivityAt?: Date): Promise<void>;
+  updateResidentOnboarding(id: number, data: { onboardingStatus?: OnboardingStatus; onboardingProfile?: OnboardingProfile }): Promise<Resident | undefined>;
 
   getSensors(entityId: number): Promise<Sensor[]>;
   getSensor(id: number): Promise<Sensor | undefined>;
@@ -309,6 +310,17 @@ export class DatabaseStorage implements IStorage {
     const updateData: any = { status };
     if (lastActivityAt) updateData.lastActivityAt = lastActivityAt;
     await db.update(residents).set(updateData).where(eq(residents.id, id));
+  }
+
+  async updateResidentOnboarding(
+    id: number,
+    data: { onboardingStatus?: OnboardingStatus; onboardingProfile?: OnboardingProfile }
+  ): Promise<Resident | undefined> {
+    const updateData: Partial<typeof residents.$inferInsert> = {};
+    if (data.onboardingStatus !== undefined) updateData.onboardingStatus = data.onboardingStatus;
+    if (data.onboardingProfile !== undefined) updateData.onboardingProfile = data.onboardingProfile;
+    const [updated] = await db.update(residents).set(updateData).where(eq(residents.id, id)).returning();
+    return updated;
   }
 
   async getSensors(entityId: number): Promise<Sensor[]> {
