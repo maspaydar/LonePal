@@ -19,6 +19,7 @@ import {
   Wifi,
   Clock,
   PartyPopper,
+  UserPlus,
 } from "lucide-react";
 
 type Step = "welcome" | "profile" | "device" | "done";
@@ -47,6 +48,7 @@ export default function FamilyOnboardingPage() {
 
   const [step, setStep] = useState<Step>("welcome");
   const [residentId, setResidentId] = useState<number | null>(null);
+  const [completedCount, setCompletedCount] = useState(0);
 
   // Profile fields
   const [firstName, setFirstName] = useState(initial.first);
@@ -108,6 +110,7 @@ export default function FamilyOnboardingPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/units`] });
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/residents`] });
+      setCompletedCount((c) => c + 1);
       setStep("done");
     },
     onError: (err: Error) => {
@@ -116,6 +119,19 @@ export default function FamilyOnboardingPage() {
   });
 
   const profileValid = firstName.trim().length >= 2;
+
+  const startAnotherLovedOne = () => {
+    setResidentId(null);
+    setFirstName("");
+    setLastName("");
+    setPreferredName("");
+    setAboutThem("");
+    setDeviceCode("");
+    setCheckInFrequency(180);
+    setWakeTime("07:00");
+    setSleepTime("22:00");
+    setStep("profile");
+  };
 
   return (
     <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
@@ -359,19 +375,45 @@ export default function FamilyOnboardingPage() {
                 <PartyPopper className="w-8 h-8 text-green-600 dark:text-green-400" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold mb-2">You're all set!</h2>
+                <h2 className="text-2xl font-bold mb-2">
+                  {lovedOneFirst} is all set!
+                </h2>
                 <p className="text-muted-foreground">
                   {lovedOneFirst} is ready for daily check-ins. You'll see their status and alerts on your home screen.
+                  {completedCount > 1 && (
+                    <>
+                      {" "}
+                      That's{" "}
+                      <span className="font-medium text-foreground">
+                        {completedCount} loved ones
+                      </span>{" "}
+                      set up so far.
+                    </>
+                  )}
                 </p>
               </div>
-              <Button
-                className="w-full"
-                onClick={() => setLocation("/dashboard")}
-                data-testid="button-go-to-dashboard"
-              >
-                Go to my dashboard
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
+              <p className="text-sm text-muted-foreground">
+                Caring for someone else too? You can add them now.
+              </p>
+              <div className="w-full space-y-3">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={startAnotherLovedOne}
+                  data-testid="button-add-another"
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Add another loved one
+                </Button>
+                <Button
+                  className="w-full"
+                  onClick={() => setLocation("/dashboard")}
+                  data-testid="button-go-to-dashboard"
+                >
+                  Go to my dashboard
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}
