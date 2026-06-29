@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +28,7 @@ import {
   Send,
   Clock,
   MessageSquare,
+  Wand2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCompanyAuth } from "@/hooks/use-company-auth";
@@ -135,15 +137,25 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold" data-testid="text-dashboard-title">
-          {isFamily ? "Home" : "Nexus Dashboard"}
-        </h1>
-        <p className="text-muted-foreground">
-          {isFamily
-            ? `${entity?.name ?? "Your loved one"} - Safety at a glance`
-            : `${entity?.name ?? "Your Facility"} - Real-time monitoring`}
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold" data-testid="text-dashboard-title">
+            {isFamily ? "Home" : "Nexus Dashboard"}
+          </h1>
+          <p className="text-muted-foreground">
+            {isFamily
+              ? `${entity?.name ?? "Your loved one"} - Safety at a glance`
+              : `${entity?.name ?? "Your Facility"} - Real-time monitoring`}
+          </p>
+        </div>
+        {isFamily && (
+          <Button variant="outline" asChild data-testid="button-edit-setup">
+            <Link href="/welcome">
+              <Wand2 className="h-4 w-4 mr-2" />
+              Set up / edit check-ins
+            </Link>
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

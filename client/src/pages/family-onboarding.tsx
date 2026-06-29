@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,8 +46,40 @@ export default function FamilyOnboardingPage() {
 
   const initial = splitName(entity?.name || "");
 
+  // When the family already has a loved one, we revisit the wizard in edit mode
+  // (pre-fill + update existing records). Setting `addingNew` switches back to
+  // create mode so families can add an additional loved one.
+  const [addingNew, setAddingNew] = useState(false);
+
+  const { data: residents } = useQuery<any[]>({
+    queryKey: [`/api/entities/${entityId}/residents`],
+    enabled: !!entityId,
+  });
+  const { data: units } = useQuery<any[]>({
+    queryKey: [`/api/entities/${entityId}/units`],
+    enabled: !!entityId,
+  });
+
+  const existingResident =
+    !addingNew && Array.isArray(residents) && residents.length > 0 ? residents[0] : undefined;
+  const isEditMode = !!existingResident;
+
+  const editUnit =
+    existingResident && Array.isArray(units)
+      ? units.find(
+          (u: any) => u.resident?.id === existingResident.id || u.id === existingResident.unitId,
+        )
+      : undefined;
+  const editUnitId = editUnit?.id ?? null;
+
+  const { data: deviceSettings } = useQuery<any>({
+    queryKey: [`/api/entities/${entityId}/units/${editUnitId}/device-settings`],
+    enabled: !!entityId && !!editUnitId,
+  });
+
   const [step, setStep] = useState<Step>("welcome");
   const [residentId, setResidentId] = useState<number | null>(null);
+  const [unitId, setUnitId] = useState<number | null>(null);
   const [completedCount, setCompletedCount] = useState(0);
 
   // Profile fields
@@ -62,15 +94,59 @@ export default function FamilyOnboardingPage() {
   const [wakeTime, setWakeTime] = useState("07:00");
   const [sleepTime, setSleepTime] = useState("22:00");
 
+  // Pre-fill guards so a family's in-progress edits aren't clobbered on refetch.
+  const [profilePrefilled, setProfilePrefilled] = useState(false);
+  const [unitPrefilled, setUnitPrefilled] = useState(false);
+  const [settingsPrefilled, setSettingsPrefilled] = useState(false);
+
+  useEffect(() => {
+    if (existingResident && !profilePrefilled) {
+      setResidentId(existingResident.id);
+      setFirstName(existingResident.firstName || "");
+      setLastName(existingResident.lastName || "");
+      setPreferredName(existingResident.preferredName || "");
+      setAboutThem(existingResident.medicalNotes || "");
+      setProfilePrefilled(true);
+    }
+  }, [existingResident, profilePrefilled]);
+
+  useEffect(() => {
+    if (editUnit && !unitPrefilled) {
+      setUnitId(editUnit.id);
+      if (editUnit.esp32DeviceMac) setDeviceCode(editUnit.esp32DeviceMac);
+      setUnitPrefilled(true);
+    }
+  }, [editUnit, unitPrefilled]);
+
+  useEffect(() => {
+    if (deviceSettings && !settingsPrefilled) {
+      if (deviceSettings.aiCheckInFrequency) setCheckInFrequency(deviceSettings.aiCheckInFrequency);
+      if (deviceSettings.activeHoursStart) setWakeTime(deviceSettings.activeHoursStart);
+      if (deviceSettings.activeHoursEnd) setSleepTime(deviceSettings.activeHoursEnd);
+      setSettingsPrefilled(true);
+    }
+  }, [deviceSettings, settingsPrefilled]);
+
   const lovedOneFirst = (preferredName || firstName || "your loved one").trim();
 
   const createProfile = useMutation({
     mutationFn: async () => {
+      const trimmedPreferred = preferredName.trim();
+      const trimmedNotes = aboutThem.trim();
+      if (isEditMode && residentId) {
+        const res = await apiRequest("PATCH", `/api/residents/${residentId}`, {
+          firstName: firstName.trim(),
+          lastName: lastName.trim() || firstName.trim(),
+          preferredName: trimmedPreferred || null,
+          medicalNotes: trimmedNotes || null,
+        });
+        return res.json();
+      }
       const res = await apiRequest("POST", `/api/entities/${entityId}/residents`, {
         firstName: firstName.trim(),
         lastName: lastName.trim() || firstName.trim(),
-        preferredName: preferredName.trim() || undefined,
-        medicalNotes: aboutThem.trim() || undefined,
+        preferredName: trimmedPreferred || undefined,
+        medicalNotes: trimmedNotes || undefined,
       });
       return res.json();
     },
@@ -87,29 +163,44 @@ export default function FamilyOnboardingPage() {
   const setupDevice = useMutation({
     mutationFn: async () => {
       if (!residentId) throw new Error("Profile not created yet");
-      const suffix = Math.random().toString(36).slice(2, 6);
-      const unitRes = await apiRequest("POST", `/api/entities/${entityId}/units`, {
-        unitIdentifier: `${lovedOneFirst}-home-${suffix}`,
-        label: `${lovedOneFirst}'s home`,
-        hardwareType: "esp32_custom",
-        esp32DeviceMac: deviceCode.trim() || undefined,
-      });
-      const unit = await unitRes.json();
+      let targetUnitId = unitId;
 
-      await apiRequest("POST", `/api/entities/${entityId}/units/${unit.id}/assign-resident`, {
-        residentId,
-      });
+      if (isEditMode && targetUnitId) {
+        // Update the loved one's existing home instead of creating a duplicate.
+        await apiRequest("PUT", `/api/entities/${entityId}/units/${targetUnitId}`, {
+          esp32DeviceMac: deviceCode.trim() || null,
+        });
+      } else {
+        const suffix = Math.random().toString(36).slice(2, 6);
+        const unitRes = await apiRequest("POST", `/api/entities/${entityId}/units`, {
+          unitIdentifier: `${lovedOneFirst}-home-${suffix}`,
+          label: `${lovedOneFirst}'s home`,
+          hardwareType: "esp32_custom",
+          esp32DeviceMac: deviceCode.trim() || undefined,
+        });
+        const unit = await unitRes.json();
+        targetUnitId = unit.id;
 
-      await apiRequest("PUT", `/api/entities/${entityId}/units/${unit.id}/device-settings`, {
+        await apiRequest("POST", `/api/entities/${entityId}/units/${targetUnitId}/assign-resident`, {
+          residentId,
+        });
+      }
+
+      await apiRequest("PUT", `/api/entities/${entityId}/units/${targetUnitId}/device-settings`, {
         aiCheckInFrequency: checkInFrequency,
         activeHoursStart: wakeTime,
         activeHoursEnd: sleepTime,
       });
-      return unit;
+      return targetUnitId;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/units`] });
       queryClient.invalidateQueries({ queryKey: [`/api/entities/${entityId}/residents`] });
+      if (editUnitId) {
+        queryClient.invalidateQueries({
+          queryKey: [`/api/entities/${entityId}/units/${editUnitId}/device-settings`],
+        });
+      }
       setCompletedCount((c) => c + 1);
       setStep("done");
     },
@@ -121,7 +212,9 @@ export default function FamilyOnboardingPage() {
   const profileValid = firstName.trim().length >= 2;
 
   const startAnotherLovedOne = () => {
+    setAddingNew(true);
     setResidentId(null);
+    setUnitId(null);
     setFirstName("");
     setLastName("");
     setPreferredName("");
@@ -157,10 +250,22 @@ export default function FamilyOnboardingPage() {
                 <Heart className="w-8 h-8 text-primary-foreground" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold mb-2">Welcome to HeyGrand</h1>
+                <h1 className="text-2xl font-bold mb-2">
+                  {isEditMode ? "Update your setup" : "Welcome to HeyGrand"}
+                </h1>
                 <p className="text-muted-foreground">
-                  Let's get {entity?.name ? <span className="font-medium text-foreground">{entity.name}</span> : "your loved one"} set
-                  up for daily check-ins and peace of mind. It only takes a minute.
+                  {isEditMode ? (
+                    <>
+                      Review or change{" "}
+                      <span className="font-medium text-foreground">{lovedOneFirst}</span>'s
+                      details, check-in times, and device whenever you like.
+                    </>
+                  ) : (
+                    <>
+                      Let's get {entity?.name ? <span className="font-medium text-foreground">{entity.name}</span> : "your loved one"} set
+                      up for daily check-ins and peace of mind. It only takes a minute.
+                    </>
+                  )}
                 </p>
               </div>
               <div className="w-full space-y-3 text-left">
@@ -181,9 +286,19 @@ export default function FamilyOnboardingPage() {
                 ))}
               </div>
               <Button className="w-full" onClick={() => setStep("profile")} data-testid="button-start-onboarding">
-                Get started
+                {isEditMode ? "Review settings" : "Get started"}
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
+              {isEditMode && (
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => setLocation("/dashboard")}
+                  data-testid="button-cancel-onboarding"
+                >
+                  Back to dashboard
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}
@@ -354,11 +469,11 @@ export default function FamilyOnboardingPage() {
                   {setupDevice.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Finishing...
+                      {isEditMode ? "Saving..." : "Finishing..."}
                     </>
                   ) : (
                     <>
-                      Finish setup
+                      {isEditMode ? "Save changes" : "Finish setup"}
                       <CheckCircle2 className="w-4 h-4 ml-2" />
                     </>
                   )}
@@ -376,10 +491,12 @@ export default function FamilyOnboardingPage() {
               </div>
               <div>
                 <h2 className="text-2xl font-bold mb-2">
-                  {lovedOneFirst} is all set!
+                  {isEditMode ? `${lovedOneFirst}'s settings saved!` : `${lovedOneFirst} is all set!`}
                 </h2>
                 <p className="text-muted-foreground">
-                  {lovedOneFirst} is ready for daily check-ins. You'll see their status and alerts on your home screen.
+                  {isEditMode
+                    ? `Your changes are live. ${lovedOneFirst}'s check-ins will use the updated settings right away.`
+                    : `${lovedOneFirst} is ready for daily check-ins. You'll see their status and alerts on your home screen.`}
                   {completedCount > 1 && (
                     <>
                       {" "}

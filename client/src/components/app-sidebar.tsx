@@ -13,6 +13,7 @@ import {
   LogOut,
   CreditCard,
   FileText,
+  Wand2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -36,6 +37,7 @@ interface NavItem {
   url: string;
   icon: typeof LayoutDashboard;
   facilityOnly?: boolean;
+  familyOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -50,6 +52,7 @@ const navItems: NavItem[] = [
 
 const configItems: NavItem[] = [
   { title: "Scenario Rules", familyTitle: "Check-in Rules", url: "/scenario-config", icon: Zap },
+  { title: "Set Up Check-ins", url: "/welcome", icon: Wand2, familyOnly: true },
   { title: "Billing", url: "/billing", icon: CreditCard },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
@@ -68,8 +71,16 @@ export function AppSidebar({ unreadAlerts = 0, activeScenarios = 0 }: AppSidebar
   const isFamily = entity?.type === "family";
 
   const labelOf = (item: NavItem) => (isFamily && item.familyTitle ? item.familyTitle : item.title);
-  const visibleNavItems = navItems.filter((item) => !(isFamily && item.facilityOnly));
-  const visibleConfigItems = configItems.filter((item) => item.title !== "Billing" || isAdmin);
+  const visibleNavItems = navItems.filter((item) => {
+    if (isFamily && item.facilityOnly) return false;
+    if (item.familyOnly && !isFamily) return false;
+    return true;
+  });
+  const visibleConfigItems = configItems.filter((item) => {
+    if (item.title === "Billing" && !isAdmin) return false;
+    if (item.familyOnly && !isFamily) return false;
+    return true;
+  });
 
   return (
     <Sidebar>
