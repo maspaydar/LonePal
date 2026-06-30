@@ -8,18 +8,18 @@ export default function HowItWorks() {
           <span className="h-[0.4vh] w-[3vw] rounded-full bg-primary" />
           <p className="font-hand text-[2.4vw] text-primary leading-none">How it works</p>
         </div>
-        <h2 className="mt-[1.6vh] max-w-[64vw] font-display text-[4.6vw] font-extrabold leading-[1.02] tracking-tight text-ink text-balance">
+        <h2 className="mt-[1.6vh] max-w-[64vw] font-display text-[4.2vw] font-extrabold leading-[1.02] tracking-tight text-ink text-balance">
           Two agents. One for company, one for safety.
         </h2>
 
-        <div className="mt-[4.5vh] grid grid-cols-[1fr_0.45fr_1fr] items-center gap-[2vw]">
+        <div className="mt-[2.2vh] grid grid-cols-[1fr_0.45fr_1fr] items-center gap-[2vw]">
           <div className="rounded-[1.4vw] bg-accent p-[2.2vw] ring-1 ring-primary/20">
             <p className="font-hand text-[2.2vw] text-primary">Companion agent</p>
             <p className="mt-[1vh] font-display text-[2.8vw] font-bold text-ink leading-tight">
               Talks like family
             </p>
             <p className="mt-[1.4vh] font-body text-[2.3vw] leading-snug text-text/70 text-pretty">
-              Warm daily check-ins that ease loneliness — like a grandchild who always calls.
+              Warm daily check-ins that ease loneliness — like a grandchild.
             </p>
           </div>
 
@@ -37,15 +37,21 @@ export default function HowItWorks() {
               Senses danger, not them
             </p>
             <p className="mt-[1.4vh] font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">
-              Reads motion sensors for falls and emergencies. No cameras in the room.
+              Reads motion sensors for falls and emergencies. No cameras.
             </p>
           </div>
         </div>
 
-        <div className="mt-[4.5vh] flex items-center justify-center gap-[1.2vw] rounded-[1.2vw] bg-alert/10 py-[2.4vh] px-[2vw] ring-1 ring-alert/30">
+        <div className="mt-[2.2vh] flex flex-wrap items-center justify-center gap-[1.2vw]">
+          <span className="font-body text-[2.2vw] font-semibold text-muted">Daily reminders</span>
+          <span className="rounded-full bg-accent px-[1.8vw] py-[1.2vh] font-body text-[2.2vw] font-medium text-ink ring-1 ring-primary/20">Prescriptions</span>
+          <span className="rounded-full bg-accent px-[1.8vw] py-[1.2vh] font-body text-[2.2vw] font-medium text-ink ring-1 ring-primary/20">Meals</span>
+        </div>
+
+        <div className="mt-[2.2vh] flex items-center justify-center gap-[1.2vw] rounded-[1.2vw] bg-alert/10 py-[2vh] px-[2vw] ring-1 ring-alert/30">
           <Shield className="w-[2.4vw] shrink-0 text-alert" />
           <p className="font-display text-[2.6vw] font-bold text-alert leading-tight">
-            The instant something looks wrong, staff and family get a red alert.
+            Something looks wrong? Staff and family get a red alert.
           </p>
         </div>
       </div>
