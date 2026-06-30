@@ -37,6 +37,8 @@ import VerifyEmailPage from "@/pages/verify-email";
 import BillingPage from "@/pages/billing";
 import ReportsPage from "@/pages/reports";
 import ResidentLoginPage from "@/pages/resident/login";
+import ServiceProviderLoginPage from "@/pages/service-provider/login";
+import ServiceProviderRegisterPage from "@/pages/service-provider/register";
 import ResidentWaitingPage from "@/pages/resident/waiting";
 import ResidentHomePage from "@/pages/resident/home";
 import ResidentChatPage from "@/pages/resident/chat";
@@ -331,6 +333,8 @@ function App() {
             <Route path="/" component={LandingPage} />
             <Route path="/login" component={LoginPage} />
             <Route path="/register" component={RegisterPage} />
+            <Route path="/service-provider/login" component={ServiceProviderLoginPage} />
+            <Route path="/service-provider/register" component={ServiceProviderRegisterPage} />
             <Route path="/family-signup" component={FamilySignupPage} />
             <Route path="/verify-email" component={VerifyEmailPage} />
             <Route path="/resident" component={ResidentLoginPage} />

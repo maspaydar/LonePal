@@ -12,16 +12,18 @@ import {
   Lock,
   Building2,
   Users,
+  Wrench,
   Clock,
   ArrowRight,
 } from "lucide-react";
 
-type Audience = "senior" | "family" | "facility";
+type Audience = "senior" | "family" | "facility" | "provider";
 
 const AUDIENCES: { id: Audience; label: string; icon: typeof Heart }[] = [
   { id: "senior", label: "I'm a senior", icon: Heart },
   { id: "family", label: "I'm a family member", icon: Users },
   { id: "facility", label: "I run a facility", icon: Building2 },
+  { id: "provider", label: "I'm a service provider", icon: Wrench },
 ];
 
 interface HeroContent {
@@ -55,6 +57,14 @@ const HERO: Record<Audience, HeroContent> = {
       "AI-powered safety monitoring across your whole facility: proactive inactivity detection, instant alerts, and personalized check-ins — all from one dashboard.",
     primary: { label: "Register your facility", href: "/register" },
     secondary: { label: "Sign in", href: "/login" },
+  },
+  provider: {
+    eyebrow: "For service providers",
+    headline: "Power certified care experiences across every HeyGrand facility.",
+    subcopy:
+      "Bring your own AI, sensors, or companion agents to the families and facilities that rely on HeyGrand — with secure, tenant-isolated access using your own provider credentials.",
+    primary: { label: "Register as a service provider", href: "/service-provider/register" },
+    secondary: { label: "Sign in", href: "/service-provider/login" },
   },
 };
 
@@ -142,6 +152,32 @@ const SERVICES: Record<Audience, ServicesContent> = {
         title: "Tenant-isolated & secure",
         description:
           "Multi-tenant isolation keeps each facility's resident data fully separated and compliant.",
+      },
+    ],
+  },
+  provider: {
+    heading: "Build on the HeyGrand platform",
+    intro: "Certified partners deliver AI companions, hardware, and integrations to facilities and families.",
+    items: [
+      {
+        title: "Bring your own AI",
+        description:
+          "Connect your own AI provider and models with encrypted, per-facility credentials you control.",
+      },
+      {
+        title: "Certified onboarding",
+        description:
+          "Get certified through guided training, then go live for the facilities you serve.",
+      },
+      {
+        title: "Secure, scoped access",
+        description:
+          "Every action is tenant-isolated — you only ever touch the facilities you're approved for.",
+      },
+      {
+        title: "Hardware & integrations",
+        description:
+          "Connect sensors and devices, or deliver resident companion agents, through one platform.",
       },
     ],
   },
@@ -326,6 +362,9 @@ export default function LandingPage() {
             </Link>
             <Link to="/resident/login" className="hover:text-foreground" data-testid="link-footer-resident">
               Resident sign in
+            </Link>
+            <Link to="/service-provider/login" className="hover:text-foreground" data-testid="link-footer-service-provider">
+              Service provider
             </Link>
           </div>
         </div>
