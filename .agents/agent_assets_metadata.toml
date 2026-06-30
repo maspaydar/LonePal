@@ -1,8 +1,31 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "bsB9aNiS-htoAOuxWjKmH"
 uri = "file://artifacts/heygrand-investor-deck/public/hero-home.png"
 type = "image"
 title = "warm senior home"
+
+[[generated]]
+id = "buqOTWUeh-6T6UBkOGZJc"
+uri = "file://artifacts/heygrand-launch-video/src/assets/images/senior-alone.png"
+type = "image"
+title = "senior alone in dim room"
+
+[[generated]]
+id = "ZDMlqB6fBE3MbKg1_R7GQ"
+uri = "file://artifacts/heygrand-launch-video/src/assets/images/senior-happy.png"
+type = "image"
+title = "happy senior talking"
+
+[[generated]]
+id = "xui-T06IpjBxepeHPaxxF"
+uri = "file://artifacts/heygrand-launch-video/src/assets/images/nurse.png"
+type = "image"
+title = "nurse looking at tablet"
+
+[[outputs]]
+id = "e4W14Ar46ouT8H-h6BGth"
+uri = "file://artifacts/heygrand-launch-video/public/audio/bg_music.mp3"
+type = "audio"
+title = "background music"
