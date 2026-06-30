@@ -438,6 +438,7 @@ router.post("/facilities", superAdminAuthMiddleware, async (req, res) => {
       entityId: resolveFacilityEntityId(req),
       serviceProviderId: extractRequestingProviderId(req),
       allowedStatuses: SETUP_ALLOWED_STATUSES,
+      requiredType: "integration_sp",
       action: "facility environment create",
     });
     if (!auth.ok) return res.status(auth.httpStatus!).json({ error: auth.error });
@@ -478,6 +479,7 @@ router.patch("/facilities/:id", superAdminAuthMiddleware, async (req, res) => {
     entityId: resolveFacilityEntityId(req, facility),
     serviceProviderId: extractRequestingProviderId(req),
     allowedStatuses: SETUP_ALLOWED_STATUSES,
+    requiredType: "integration_sp",
     action: `facility environment update (facility ${facility.id})`,
   });
   if (!auth.ok) return res.status(auth.httpStatus!).json({ error: auth.error });
@@ -550,6 +552,7 @@ router.post("/facilities/:id/push-config", superAdminAuthMiddleware, async (req,
       entityId: resolveFacilityEntityId(req, facility),
       serviceProviderId: extractRequestingProviderId(req),
       allowedStatuses: SETUP_ALLOWED_STATUSES,
+      requiredType: "integration_sp",
       action: `facility environment config push (facility ${facility.id})`,
     });
     if (!auth.ok) return res.status(auth.httpStatus!).json({ error: auth.error });
