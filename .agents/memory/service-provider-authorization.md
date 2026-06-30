@@ -35,4 +35,15 @@ trigger source; map the action to the right provider `type` per the schema's
 role split (integration_sp = ADT/motion hardware + facility environments;
 agent_sp = resident companion agents + onboarding). Note entity scope for
 identity-based facility *create* is partly caller-asserted (no facility row yet),
-but still requires a real certified provider in that entity.
+but still requires a real certified provider in that entity. BYOK AI-provider
+config (`agent_sp`) rides on this same identity-based guard.
+
+**Known limitation (accepted, recurring review flag):** the identity-based guard
+trusts a *self-asserted* provider id (`x-service-provider-id` header / body) with
+no session/JWT/HMAC binding — there is no service-provider authentication
+subsystem in the codebase. A caller who learns a valid certified provider-id +
+entity-id pair (both serial integers) can act as that provider. Storage lookups
+are correctly tenant-scoped, so this is an *authentication* gap, not a tenant
+data-bleed. Hardening = a real SP auth mechanism applied across ALL SP-gated
+routes at once (don't harden one route in isolation). Code review fails on this
+every time; it is out of scope for feature work that only reuses the pattern.

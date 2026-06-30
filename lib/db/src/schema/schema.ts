@@ -22,6 +22,9 @@ export const entities = pgTable("entities", {
   contactPhone: text("contact_phone"),
   contactEmail: text("contact_email"),
   geminiApiKey: text("gemini_api_key"),
+  aiProvider: text("ai_provider").notNull().default("google-gemini"),
+  encryptedApiKey: text("encrypted_api_key"),
+  aiModelOverride: text("ai_model_override"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });

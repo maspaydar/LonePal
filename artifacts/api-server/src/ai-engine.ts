@@ -2,9 +2,15 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { storage } from "./storage";
 import type { Resident, ScenarioConfig, ActiveScenario, UserPreferences, OnboardingProfile, ServiceProvider, ServiceProviderType } from "@workspace/db";
 import { log } from "./logger-util";
+import { decryptSecret } from "./crypto";
+
+const DEFAULT_MODEL = "gemini-2.0-flash";
 
 let _ai: GoogleGenAI | null = null;
 const _entityAiClients = new Map<number, GoogleGenAI>();
+// Per-entity model override, populated lazily by getAIForEntity so the matching
+// getModelName(entityId) call can resolve the subscriber's chosen model.
+const _entityModels = new Map<number, string>();
 
 function getAI(): GoogleGenAI | null {
   if (!process.env.GEMINI_API_KEY) return null;
@@ -14,11 +20,43 @@ function getAI(): GoogleGenAI | null {
   return _ai;
 }
 
+// Resolves the AI client for an entity, honoring a subscriber-owned ("bring your
+// own key") provider key when configured. Order of precedence:
+//   1. entity.encryptedApiKey  (custom key, encrypted at rest — decrypted here)
+//   2. entity.geminiApiKey     (legacy plaintext key, kept for back-compat)
+//   3. global GEMINI_API_KEY   (platform default fallback)
+// Clients are cached per entity; clearEntityAiClient() must be called whenever an
+// entity's key or model changes so the next call rebuilds from fresh config.
 async function getAIForEntity(entityId: number): Promise<GoogleGenAI | null> {
   const entity = await storage.getEntity(entityId);
-  if (entity?.geminiApiKey) {
+
+  // Track the per-entity model override (or clear a stale one) for getModelName.
+  if (entity?.aiModelOverride) {
+    _entityModels.set(entityId, entity.aiModelOverride);
+  } else {
+    _entityModels.delete(entityId);
+  }
+
+  let customKey: string | null = null;
+  if (entity?.encryptedApiKey) {
+    try {
+      customKey = decryptSecret(entity.encryptedApiKey);
+    } catch (error) {
+      // Never fall back to another tenant's key; on decrypt failure we drop to
+      // the global key and log, rather than throwing mid-request.
+      log(
+        `Failed to decrypt custom AI key for entity ${entityId}; using global fallback: ${error}`,
+        "ai-engine",
+      );
+      customKey = null;
+    }
+  } else if (entity?.geminiApiKey) {
+    customKey = entity.geminiApiKey;
+  }
+
+  if (customKey) {
     if (!_entityAiClients.has(entityId)) {
-      _entityAiClients.set(entityId, new GoogleGenAI({ apiKey: entity.geminiApiKey }));
+      _entityAiClients.set(entityId, new GoogleGenAI({ apiKey: customKey }));
     }
     return _entityAiClients.get(entityId)!;
   }
@@ -27,10 +65,39 @@ async function getAIForEntity(entityId: number): Promise<GoogleGenAI | null> {
 
 export function clearEntityAiClient(entityId: number): void {
   _entityAiClients.delete(entityId);
+  _entityModels.delete(entityId);
 }
 
-function getModelName() {
-  return "gemini-2.0-flash";
+// Returns the model for a given entity: the subscriber's override when set,
+// otherwise the platform default. Callers pass the same entityId they used for
+// getAIForEntity so the cached override is honored.
+function getModelName(entityId?: number): string {
+  if (entityId != null) {
+    const override = _entityModels.get(entityId);
+    if (override) return override;
+  }
+  return DEFAULT_MODEL;
+}
+
+// Validates a candidate provider API key by instantiating a throwaway, isolated
+// client and issuing a minimal generation ("ping"). Returns ok:false with a
+// human-readable reason on any failure (invalid key, rate limit, network, etc.)
+// so config routes can reject bad keys before persisting them.
+export async function pingGeminiKey(
+  apiKey: string,
+  model?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const client = new GoogleGenAI({ apiKey });
+    await client.models.generateContent({
+      model: model || DEFAULT_MODEL,
+      contents: "ping",
+      config: { maxOutputTokens: 1, temperature: 0 },
+    });
+    return { ok: true };
+  } catch (error: any) {
+    return { ok: false, error: error?.message || "Unknown error validating API key" };
+  }
 }
 
 const personaCache = new Map<number, { prompt: string; cachedAt: number }>();
@@ -256,7 +323,7 @@ export async function generateAICheckIn(
     });
 
     const response = await aiClient.models.generateContent({
-      model: getModelName(),
+      model: getModelName(resident.entityId),
       contents,
       config: {
         systemInstruction,
@@ -363,7 +430,7 @@ export async function generateCompanionReply(
 
   try {
     const response = await aiClient.models.generateContent({
-      model: getModelName(),
+      model: getModelName(resident.entityId),
       contents,
       config: { systemInstruction, maxOutputTokens: 300, temperature: 0.7 },
     });
@@ -438,7 +505,7 @@ riskLevel must be one of: "none", "low", "medium", "high". moodScore is 1-5 (1=v
 
   try {
     const response = await aiClient.models.generateContent({
-      model: getModelName(),
+      model: getModelName(resident.entityId),
       contents: [{ role: "user", parts: [{ text: analysisPrompt }] }],
       config: {
         systemInstruction,
@@ -511,7 +578,7 @@ export async function streamCompanionResponse(
 
   try {
     const stream = await aiClient.models.generateContentStream({
-      model: getModelName(),
+      model: getModelName(resident.entityId),
       contents,
       config: {
         systemInstruction,
@@ -552,7 +619,7 @@ export async function transcribeAudio(audioBase64: string, mimeType: string = "a
 
   try {
     const response = await aiClient.models.generateContent({
-      model: getModelName(),
+      model: getModelName(entityId),
       contents: [
         {
           role: "user",
@@ -695,7 +762,7 @@ The memoryTopic should describe the content of what ${name} JUST said (not the n
     contents.push({ role: "user", parts: [{ text: userMessage }] });
 
     const response = await aiClient.models.generateContent({
-      model: getModelName(),
+      model: getModelName(resident.entityId),
       contents,
       config: {
         systemInstruction: analysisPrompt,
@@ -890,7 +957,7 @@ The profile you return MUST preserve everything already gathered and add the new
     contents.push({ role: "user", parts: [{ text: prompt }] });
 
     const response = await aiClient.models.generateContent({
-      model: getModelName(),
+      model: getModelName(resident.entityId),
       contents,
       config: {
         systemInstruction,
@@ -1307,7 +1374,7 @@ export async function generateTrainingResponse(
 
   try {
     const response = await aiClient.models.generateContent({
-      model: getModelName(),
+      model: getModelName(provider.entityId),
       contents,
       config: {
         systemInstruction,
@@ -1462,7 +1529,7 @@ Set "certified" to true ONLY if the provider has clearly demonstrated EVERY requ
 
   try {
     const response = await aiClient.models.generateContent({
-      model: getModelName(),
+      model: getModelName(provider.entityId),
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         systemInstruction,

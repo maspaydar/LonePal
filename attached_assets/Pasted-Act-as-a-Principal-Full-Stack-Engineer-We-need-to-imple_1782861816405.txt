@@ -1,0 +1,24 @@
+Act as a Principal Full-Stack Engineer. We need to implement a "Bring Your Own API Key" feature so that individual subscribers/facilities can route their multi-agent workloads through their own Gemini or alternative AI provider accounts. 
+
+This configuration will be performed securely by our certified 'agent_sp' (Agent Service Providers).
+
+Please implement this functionality across the database, server configs, and management routes:
+
+### 1. Database & Schema Updates (`shared/schema.ts`)
+- Update the facility/entity table to support multiple key configurations. It should store:
+  - `ai_provider`: A string defaulting to 'google-gemini' (allow room for other providers like 'anthropic', 'openai' later).
+  - `encrypted_api_key`: A secure text field to store the provider's API key.
+  - `ai_model_override`: A string allowing them to change the model type (e.g., swapping from 'gemini-2.0-flash' to a Pro variant).
+- Create a server-side encryption/decryption utility helper (`server/crypto.ts`) using Node's native 'crypto' module to ensure that these custom customer API keys are encrypted at rest before hitting our database logs.
+
+### 2. Provider Setup & Management Routes (`server/routes.ts`)
+- Build a secure POST route `/api/service-providers/config-ai` that is authorized ONLY for certified 'agent_sp' roles.
+- This endpoint must accept an `entityId`, `ai_provider`, `api_key`, and an optional `ai_model_override`.
+- **Validation Check:** Before saving the custom key to the database, the route must instantiate a temporary, isolated AI client using that key and send a minimal "ping" request (like a blank or 1-word generation check) to verify that the key is live, valid, and not hitting a rate limit. If it fails validation, reject the update with a clear error message.
+
+### 3. Update the AI Engine Loader (`server/ai-engine.ts`)
+- Refactor `getAIForEntity(entityId)` so that it decrypts the custom `encrypted_api_key` stored on the entity row and initializes the `@google/genai` client dynamically using that subscriber-owned key.
+- Ensure that if the client has an `ai_model_override` saved, our `getModelName()` function uses their specific choice instead of defaulting globally.
+- Keep our global `process.env.GEMINI_API_KEY` working perfectly as the standard global fallback for any entity that hasn't configured a custom provider key yet.
+
+Ensure multi-tenant data structures remain strict and isolated so one facility can never access or read another facility's custom credentials. Provide a clear file-by-file summary of your edits when complete.
