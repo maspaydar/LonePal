@@ -27,11 +27,14 @@ import {
   type RecoveryExecutionLog, type InsertRecoveryExecutionLog,
   type Memory, type InsertMemory,
   type MonitoringObservation, type InsertMonitoringObservation,
+  type ServiceProvider, type InsertServiceProvider, type ServiceProviderType,
+  type TrainingLog, type InsertTrainingLog,
   users, entities, residents, sensors, esp32SensorData, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, superAdminAuditLogs, facilities, facilityHealthLogs,
   maintenanceLogs, userPreferences, deviceSettings, devicePairingCodes, speakerEvents,
   centralLogEntries, recoveryScripts, recoveryExecutionLogs, memories, monitoringObservations,
+  serviceProviders, trainingLogs,
 } from "@workspace/db";
 import { db } from "./db";
 import { eq, and, desc, isNull, sql, gte, inArray } from "drizzle-orm";
@@ -200,6 +203,17 @@ export interface IStorage {
 
   createMonitoringObservation(observation: InsertMonitoringObservation): Promise<MonitoringObservation>;
   getLatestMonitoringObservation(residentId: number): Promise<MonitoringObservation | undefined>;
+
+  // Service Providers (entity-scoped)
+  getServiceProviders(entityId: number): Promise<ServiceProvider[]>;
+  getServiceProvidersByType(entityId: number, type: ServiceProviderType): Promise<ServiceProvider[]>;
+  getServiceProvider(entityId: number, id: number): Promise<ServiceProvider | undefined>;
+  createServiceProvider(entityId: number, data: Omit<InsertServiceProvider, "entityId">): Promise<ServiceProvider>;
+  updateServiceProvider(entityId: number, id: number, data: Partial<InsertServiceProvider>): Promise<ServiceProvider | undefined>;
+
+  // Training Logs (entity-scoped)
+  getTrainingLogs(entityId: number, serviceProviderId: number): Promise<TrainingLog[]>;
+  createTrainingLog(entityId: number, serviceProviderId: number, data: Omit<InsertTrainingLog, "entityId" | "serviceProviderId">): Promise<TrainingLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1124,6 +1138,74 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(monitoringObservations.createdAt))
       .limit(1);
     return obs;
+  }
+
+  // --- Service Providers ---
+  // All reads/writes are scoped by entityId to preserve multi-tenant isolation.
+
+  async getServiceProviders(entityId: number): Promise<ServiceProvider[]> {
+    return db.select().from(serviceProviders)
+      .where(eq(serviceProviders.entityId, entityId))
+      .orderBy(serviceProviders.name);
+  }
+
+  async getServiceProvidersByType(entityId: number, type: ServiceProviderType): Promise<ServiceProvider[]> {
+    return db.select().from(serviceProviders)
+      .where(and(eq(serviceProviders.entityId, entityId), eq(serviceProviders.type, type)))
+      .orderBy(serviceProviders.name);
+  }
+
+  async getServiceProvider(entityId: number, id: number): Promise<ServiceProvider | undefined> {
+    const [sp] = await db.select().from(serviceProviders)
+      .where(and(eq(serviceProviders.entityId, entityId), eq(serviceProviders.id, id)));
+    return sp;
+  }
+
+  async createServiceProvider(
+    entityId: number,
+    data: Omit<InsertServiceProvider, "entityId">,
+  ): Promise<ServiceProvider> {
+    // entityId is server-derived, not caller-supplied, to keep tenants isolated.
+    const [created] = await db.insert(serviceProviders).values({ ...data, entityId }).returning();
+    return created;
+  }
+
+  async updateServiceProvider(
+    entityId: number,
+    id: number,
+    data: Partial<InsertServiceProvider>,
+  ): Promise<ServiceProvider | undefined> {
+    // Never allow an update to move a provider to a different tenant.
+    const { entityId: _ignored, ...rest } = data;
+    const [updated] = await db.update(serviceProviders).set(rest)
+      .where(and(eq(serviceProviders.entityId, entityId), eq(serviceProviders.id, id)))
+      .returning();
+    return updated;
+  }
+
+  // --- Training Logs ---
+
+  async getTrainingLogs(entityId: number, serviceProviderId: number): Promise<TrainingLog[]> {
+    return db.select().from(trainingLogs)
+      .where(and(eq(trainingLogs.entityId, entityId), eq(trainingLogs.serviceProviderId, serviceProviderId)))
+      .orderBy(trainingLogs.createdAt);
+  }
+
+  async createTrainingLog(
+    entityId: number,
+    serviceProviderId: number,
+    data: Omit<InsertTrainingLog, "entityId" | "serviceProviderId">,
+  ): Promise<TrainingLog> {
+    // Verify the target service provider belongs to this tenant before logging,
+    // so a training log can never be linked across tenant boundaries.
+    const sp = await this.getServiceProvider(entityId, serviceProviderId);
+    if (!sp) {
+      throw new Error(`Service provider ${serviceProviderId} not found for entity ${entityId}`);
+    }
+    const [created] = await db.insert(trainingLogs)
+      .values({ ...data, entityId, serviceProviderId })
+      .returning();
+    return created;
   }
 }
 

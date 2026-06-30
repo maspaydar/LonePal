@@ -542,3 +542,45 @@ export type RecoveryScript = typeof recoveryScripts.$inferSelect;
 export type InsertRecoveryScript = z.infer<typeof insertRecoveryScriptSchema>;
 export type RecoveryExecutionLog = typeof recoveryExecutionLogs.$inferSelect;
 export type InsertRecoveryExecutionLog = z.infer<typeof insertRecoveryExecutionLogSchema>;
+
+// Service Providers — third-party operators that set up the platform for an entity.
+// `integration_sp` connects ADT / motion-detector hardware and facility environments.
+// `agent_sp` configures resident companion agents and runs onboarding interviews.
+export const serviceProviderTypeEnum = pgEnum("service_provider_type", ["integration_sp", "agent_sp"]);
+export const serviceProviderStatusEnum = pgEnum("service_provider_status", ["registered", "in_training", "certified", "approved"]);
+
+export const serviceProviders = pgTable("service_providers", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").notNull(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  type: serviceProviderTypeEnum("type").notNull(),
+  status: serviceProviderStatusEnum("status").notNull().default("registered"),
+  trainingProgress: jsonb("training_progress"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// Training Logs — conversation history between a service provider and the
+// super-admin Training Agent. Each row is one turn in the exchange.
+export const trainingLogRoleEnum = pgEnum("training_log_role", ["service_provider", "training_agent"]);
+
+export const trainingLogs = pgTable("training_logs", {
+  id: serial("id").primaryKey(),
+  entityId: integer("entity_id").notNull(),
+  serviceProviderId: integer("service_provider_id").notNull(),
+  role: trainingLogRoleEnum("role").notNull(),
+  content: text("content").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertServiceProviderSchema = createInsertSchema(serviceProviders).omit({ id: true, createdAt: true });
+export const insertTrainingLogSchema = createInsertSchema(trainingLogs).omit({ id: true, createdAt: true });
+
+export type ServiceProvider = typeof serviceProviders.$inferSelect;
+export type InsertServiceProvider = z.infer<typeof insertServiceProviderSchema>;
+export type ServiceProviderType = (typeof serviceProviderTypeEnum.enumValues)[number];
+export type ServiceProviderStatus = (typeof serviceProviderStatusEnum.enumValues)[number];
+export type TrainingLog = typeof trainingLogs.$inferSelect;
+export type InsertTrainingLog = z.infer<typeof insertTrainingLogSchema>;
+export type TrainingLogRole = (typeof trainingLogRoleEnum.enumValues)[number];
