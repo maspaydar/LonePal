@@ -27,19 +27,19 @@ export default function Solution() {
             <span className="h-[0.4vh] w-[3vw] rounded-full bg-primary" />
             <p className="font-hand text-[2.4vw] text-primary leading-none">The solution</p>
           </div>
-          <h2 className="mt-[1.6vh] font-display text-[4.4vw] font-extrabold leading-[1.02] tracking-tight text-ink text-balance">
-            Always-on care that never has to be asked.
+          <h2 className="mt-[1.6vh] font-display text-[4vw] font-extrabold leading-[1.02] tracking-tight text-ink text-balance">
+            A companion for loneliness, a guardian for safety.
           </h2>
 
-          <div className="mt-[3.5vh] flex flex-col gap-[2.6vh]">
+          <div className="mt-[2.6vh] flex flex-col gap-[2.2vh]">
             <div className="flex items-start gap-[1.6vw]">
               <div className="mt-[0.4vh] flex aspect-square w-[3vw] items-center justify-center rounded-[0.7vw] bg-accent">
                 <Shield className="w-[1.7vw] text-primary" />
               </div>
               <div>
-                <p className="font-display text-[2.7vw] font-bold text-ink">Passive monitoring</p>
+                <p className="font-display text-[2.6vw] font-bold text-ink">Family-like companionship</p>
                 <p className="font-body text-[2.2vw] leading-snug text-muted text-pretty">
-                  Presence sensing watches for inactivity. No wearable, no button to press.
+                  Daily chats with an AI that remembers their stories, like a grandchild.
                 </p>
               </div>
             </div>
@@ -48,9 +48,9 @@ export default function Solution() {
                 <Shield className="w-[1.7vw] text-primary" />
               </div>
               <div>
-                <p className="font-display text-[2.7vw] font-bold text-ink">AI companion</p>
+                <p className="font-display text-[2.6vw] font-bold text-ink">Privacy-first safety</p>
                 <p className="font-body text-[2.2vw] leading-snug text-muted text-pretty">
-                  Warm daily conversations that residents actually look forward to.
+                  Motion sensors catch falls and emergencies — never cameras.
                 </p>
               </div>
             </div>
@@ -59,9 +59,9 @@ export default function Solution() {
                 <Shield className="w-[1.7vw] text-primary" />
               </div>
               <div>
-                <p className="font-display text-[2.7vw] font-bold text-ink">Real-time alerts</p>
+                <p className="font-display text-[2.6vw] font-bold text-ink">Help in real time</p>
                 <p className="font-body text-[2.2vw] leading-snug text-muted text-pretty">
-                  When risk is detected, staff are notified instantly — not hours later.
+                  If something seems wrong, staff and family are alerted at once.
                 </p>
               </div>
             </div>

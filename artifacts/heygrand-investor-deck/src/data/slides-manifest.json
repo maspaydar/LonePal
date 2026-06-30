@@ -4,7 +4,7 @@
     "position": 1,
     "filepath": "src/pages/slides/Cover.tsx",
     "title": "Cover",
-    "description": "Title slide — HeyGrand brand lockup and pitch framing.",
+    "description": "Title slide — companionship and safety framing with HeyGrand brand lockup.",
     "speakerNotes": ""
   },
   {
@@ -12,7 +12,7 @@
     "position": 2,
     "filepath": "src/pages/slides/Problem.tsx",
     "title": "The problem",
-    "description": "Falls and inactivity go unnoticed; reactive tools, stretched staff, anxious families.",
+    "description": "The dual crisis of living alone: loneliness and falls, both with high mortality.",
     "speakerNotes": ""
   },
   {
@@ -20,7 +20,7 @@
     "position": 3,
     "filepath": "src/pages/slides/Solution.tsx",
     "title": "The solution",
-    "description": "Always-on care: passive monitoring, AI companion, real-time alerts.",
+    "description": "Family-like companionship for loneliness plus privacy-first safety monitoring.",
     "speakerNotes": ""
   },
   {
@@ -28,7 +28,7 @@
     "position": 4,
     "filepath": "src/pages/slides/HowItWorks.tsx",
     "title": "How it works",
-    "description": "Dual-agent architecture — companion talks, monitor watches, red alerts to staff.",
+    "description": "Two agents — a family-like companion and a camera-free safety monitor.",
     "speakerNotes": ""
   },
   {
@@ -43,8 +43,8 @@
     "id": "12bb088e-c9c3-4cb4-af20-5380efb9490b",
     "position": 6,
     "filepath": "src/pages/slides/Technology.tsx",
-    "title": "Technology & hardware",
-    "description": "Dual-hardware paths, Gemini AI core, multi-tenant isolation, HMAC integrity.",
+    "title": "Technology & privacy",
+    "description": "Motion-only sensing, no cameras, opt-in video calls, secure dual-hardware.",
     "speakerNotes": ""
   },
   {
@@ -52,7 +52,7 @@
     "position": 7,
     "filepath": "src/pages/slides/Market.tsx",
     "title": "Market opportunity",
-    "description": "Aging demographics and illustrative TAM/SAM/SOM sizing.",
+    "description": "Loneliness and falls crisis with sourced TAM/SAM and a 3-year SOM target.",
     "speakerNotes": ""
   },
   {
@@ -68,7 +68,7 @@
     "position": 9,
     "filepath": "src/pages/slides/WhyWeWin.tsx",
     "title": "Why we win",
-    "description": "Five differentiators forming the competitive moat.",
+    "description": "Privacy, combined companionship and safety, and operator-grade SaaS.",
     "speakerNotes": ""
   },
   {

@@ -29,14 +29,14 @@ export default function Product() {
             <span className="font-display text-[3vw] font-extrabold text-primary">03</span>
             <p className="mt-[1.2vh] font-display text-[2.4vw] font-bold text-ink leading-tight">Resident companion</p>
             <p className="mt-[1vh] font-body text-[2.2vw] leading-snug text-muted text-pretty">
-              A voice-first app for seniors, not smartphones.
+              A voice-first companion that talks like family.
             </p>
           </div>
           <div className="flex flex-col rounded-[1.2vw] bg-primary p-[1.8vw] shadow-[0_2vh_5vh_-3vh_rgba(15,23,42,0.25)]">
             <span className="font-display text-[3vw] font-extrabold text-bg/80">04</span>
             <p className="mt-[1.2vh] font-display text-[2.4vw] font-bold text-bg leading-tight">Resident web</p>
             <p className="mt-[1vh] font-body text-[2.2vw] leading-snug text-bg/80 text-pretty">
-              The same warm companion in any browser.
+              Senior-started video calls to saved family or doctor.
             </p>
           </div>
         </div>

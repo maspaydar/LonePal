@@ -19,14 +19,14 @@ export default function Cover() {
 
         <div className="max-w-[64vw]">
           <p className="font-hand text-[2.8vw] text-primary leading-none">
-            Quiet vigilance for senior living
+            Companionship and safety for seniors
           </p>
           <h1 className="mt-[2.5vh] font-display text-[7vw] font-extrabold leading-[0.98] tracking-tight text-bg text-balance">
-            A caring voice that never looks away.
+            Family that never leaves their side.
           </h1>
-          <p className="mt-[3vh] max-w-[46vw] font-body text-[2.5vw] font-light leading-snug text-bg/70 text-pretty">
-            An always-on AI companion for seniors — and the moment something
-            seems wrong, it tells staff first.
+          <p className="mt-[3vh] max-w-[48vw] font-body text-[2.5vw] font-light leading-snug text-bg/70 text-pretty">
+            An AI companion that talks with them like a grandchild — and quietly
+            senses falls and emergencies, with no cameras.
           </p>
         </div>
 

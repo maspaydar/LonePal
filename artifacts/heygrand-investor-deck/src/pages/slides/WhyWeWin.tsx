@@ -20,34 +20,34 @@ export default function WhyWeWin() {
           <p className="font-hand text-[2.4vw] text-primary leading-none">Why we win</p>
         </div>
         <h2 className="mt-[1.4vh] max-w-[64vw] font-display text-[4.4vw] font-extrabold leading-[1.02] tracking-tight text-bg text-balance">
-          A moat built on trust and integration.
+          A moat built on privacy and trust.
         </h2>
 
         <div className="mt-[4vh] flex flex-col gap-[1.8vh]">
           <div className="flex items-baseline gap-[2vw] border-b border-bg/12 pb-[1.8vh]">
             <span className="w-[4vw] shrink-0 font-display text-[2.6vw] font-extrabold text-primary">01</span>
-            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Passive detection</p>
-            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Nothing to wear, charge, or press.</p>
+            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Privacy by design</p>
+            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Motion sensors, no cameras.</p>
           </div>
           <div className="flex items-baseline gap-[2vw] border-b border-bg/12 pb-[1.8vh]">
             <span className="w-[4vw] shrink-0 font-display text-[2.6vw] font-extrabold text-primary">02</span>
-            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Dual-hardware flexibility</p>
-            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Existing ADT, or our own units.</p>
+            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Company + safety in one</p>
+            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Loneliness and danger, solved together.</p>
           </div>
           <div className="flex items-baseline gap-[2vw] border-b border-bg/12 pb-[1.8vh]">
             <span className="w-[4vw] shrink-0 font-display text-[2.6vw] font-extrabold text-primary">03</span>
-            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Care plus safety</p>
-            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Companionship makes safety welcome.</p>
+            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Feels like family</p>
+            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">A warm relationship, not a gadget.</p>
           </div>
           <div className="flex items-baseline gap-[2vw] border-b border-bg/12 pb-[1.8vh]">
             <span className="w-[4vw] shrink-0 font-display text-[2.6vw] font-extrabold text-primary">04</span>
-            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Multi-tenant SaaS</p>
-            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Fleet management for operators.</p>
+            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Dual-hardware flexibility</p>
+            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Existing ADT, or our own units.</p>
           </div>
           <div className="flex items-baseline gap-[2vw]">
             <span className="w-[4vw] shrink-0 font-display text-[2.6vw] font-extrabold text-primary">05</span>
-            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Device integrity</p>
-            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">HMAC-signed messages per unit.</p>
+            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Built for operators</p>
+            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">True multi-tenant SaaS with fleet tools.</p>
           </div>
         </div>
       </div>
