@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { storage } from "./storage";
-import type { Resident, ScenarioConfig, ActiveScenario, UserPreferences, OnboardingProfile } from "@workspace/db";
+import type { Resident, ScenarioConfig, ActiveScenario, UserPreferences, OnboardingProfile, ServiceProvider, ServiceProviderType } from "@workspace/db";
 import { log } from "./logger-util";
 
 let _ai: GoogleGenAI | null = null;
@@ -993,5 +993,364 @@ function fallbackQuestion(name: string, field: keyof OnboardingProfile | null): 
       return `Thank you for sharing. Lastly, are there any topics you'd prefer your companion never bring up?`;
     default:
       return `Thank you so much, ${name}. Your companion is all set up and ready whenever you'd like to chat.`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Training Agent — Super-Admin Certification Specialist
+//
+// A strict, thorough, supportive examiner that interviews a service provider
+// (one question at a time) and evaluates whether they understand HeyGrand's
+// care-compliance standards. State for the interview lives in the provider's
+// `training_progress` JSON field; the caller persists the returned `progress`.
+// ---------------------------------------------------------------------------
+
+export interface TrainingTopicProgress {
+  /** Stable key from the rubric (e.g. "sensor_positioning"). */
+  topic: string;
+  /** Human-readable label for the topic. */
+  label: string;
+  /** True once the examiner has meaningfully assessed this topic. */
+  covered: boolean;
+  /** 0-100 competency score for this topic. */
+  score: number;
+  /** Examiner's running notes on the provider's answers. */
+  notes: string;
+}
+
+export interface TrainingProgress {
+  providerType: ServiceProviderType;
+  topics: TrainingTopicProgress[];
+  /** Rubric key the examiner is currently probing, if any. */
+  currentTopic: string | null;
+  /** Number of examiner questions asked so far. */
+  questionsAsked: number;
+  /** 0-100 average competency across all rubric topics. */
+  overallScore: number;
+  understandingLevel: "not_started" | "developing" | "proficient" | "mastered";
+  /** Safety / compliance concerns the examiner flagged for super-admin review. */
+  redFlags: string[];
+  /** Deterministically computed: all topics covered, all >= pass, no red flags. */
+  readyForCertification: boolean;
+  updatedAt: string;
+}
+
+export interface TrainingTurnResult {
+  /** The examiner's next message to the provider (one question at a time). */
+  reply: string;
+  /** Updated interview state — caller persists this to `serviceProviders.trainingProgress`. */
+  progress: TrainingProgress;
+}
+
+const TRAINING_PASS_SCORE = 70;
+
+interface TrainingRubric {
+  label: string;
+  topics: { key: string; label: string }[];
+  focus: string;
+}
+
+const TRAINING_RUBRICS: Record<ServiceProviderType, TrainingRubric> = {
+  integration_sp: {
+    label: "Integration Service Provider",
+    topics: [
+      { key: "sensor_positioning", label: "Safety-critical sensor positioning" },
+      { key: "hardware_testing", label: "Hardware testing protocols" },
+      { key: "blind_spot_avoidance", label: "Avoiding blind spots in senior rooms" },
+    ],
+    focus:
+      "This provider installs ADT and motion-detector hardware and prepares facility environments. " +
+      "Probe how they position sensors so falls, bathrooms, and bedsides are never left unmonitored; " +
+      "how they verify each device with end-to-end testing before sign-off; and how they survey a room " +
+      "to eliminate blind spots. Treat any answer that could leave a senior unmonitored as a safety failure.",
+  },
+  agent_sp: {
+    label: "Agent Service Provider",
+    topics: [
+      { key: "ethical_boundaries", label: "Ethical boundaries with residents" },
+      { key: "vulnerable_seniors", label: "Managing vulnerable and at-risk seniors" },
+      { key: "tone_verbosity", label: "Managing tone and verbosity preferences" },
+      { key: "safety_red_flags", label: "Recognizing and escalating safety red flags" },
+    ],
+    focus:
+      "This provider configures resident companion agents and runs onboarding interviews. " +
+      "Probe their ethical boundaries (no medical advice, no manipulation, respecting consent and privacy); " +
+      "how they handle vulnerable, confused, or distressed seniors with patience and dignity; how they tune " +
+      "tone and verbosity to a resident's preferences; and whether they can spot safety red flags " +
+      "(mentions of pain, falls, self-harm, abuse) and escalate them. Treat a missed red flag as a critical failure.",
+  },
+};
+
+function clampScore(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
+function initTrainingProgress(type: ServiceProviderType): TrainingProgress {
+  const rubric = TRAINING_RUBRICS[type];
+  return {
+    providerType: type,
+    topics: rubric.topics.map((t) => ({ topic: t.key, label: t.label, covered: false, score: 0, notes: "" })),
+    currentTopic: null,
+    questionsAsked: 0,
+    overallScore: 0,
+    understandingLevel: "not_started",
+    redFlags: [],
+    readyForCertification: false,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Coerce whatever is stored in `serviceProviders.trainingProgress` (which may be
+ * null, stale, or from a different provider type) into a well-formed
+ * TrainingProgress for the provider's current type.
+ */
+function normalizePriorProgress(raw: unknown, type: ServiceProviderType): TrainingProgress {
+  const base = initTrainingProgress(type);
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    if (Array.isArray(r.topics)) {
+      base.topics = base.topics.map((t) => {
+        const prev = (r.topics as any[]).find((x) => x && x.topic === t.topic);
+        if (!prev) return t;
+        return {
+          ...t,
+          covered: prev.covered === true,
+          score: clampScore(prev.score),
+          notes: typeof prev.notes === "string" ? prev.notes : "",
+        };
+      });
+    }
+    if (Number.isFinite(Number(r.questionsAsked))) {
+      base.questionsAsked = Math.max(0, Math.round(Number(r.questionsAsked)));
+    }
+    if (Array.isArray(r.redFlags)) {
+      base.redFlags = (r.redFlags as unknown[]).filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+    }
+  }
+  base.overallScore = Math.round(base.topics.reduce((s, t) => s + t.score, 0) / base.topics.length);
+  return base;
+}
+
+function summarizeProgressForPrompt(p: TrainingProgress): string {
+  const lines = p.topics.map(
+    (t) =>
+      `- ${t.label}: ${t.covered ? `assessed (score ${t.score}/100)` : "NOT yet assessed"}${t.notes ? ` — ${t.notes}` : ""}`,
+  );
+  return [
+    `Questions asked so far: ${p.questionsAsked}`,
+    `Topic coverage:`,
+    lines.join("\n"),
+    p.redFlags.length ? `Red flags already noted: ${p.redFlags.join("; ")}` : "No red flags noted yet.",
+  ].join("\n");
+}
+
+function buildTrainingSystemInstruction(provider: ServiceProvider): string {
+  const rubric = TRAINING_RUBRICS[provider.type];
+  const curriculum = rubric.topics.map((t) => `- ${t.label} (key: ${t.key})`).join("\n");
+  return `You are the HeyGrand Super-Admin Certification Specialist — a strict, thorough, yet supportive examiner who certifies the service providers that operate the HeyGrand senior-care platform. Your job is to make sure no senior is ever put at risk by an under-qualified provider, so you hold a high bar while staying encouraging and constructive.
+
+You are interviewing ${provider.name}, who is being certified as a ${rubric.label}.
+
+${rubric.focus}
+
+CURRICULUM YOU MUST COVER (assess every topic before recommending certification):
+${curriculum}
+
+HOW YOU CONDUCT THE INTERVIEW:
+- Ask EXACTLY ONE question at a time. Never bundle multiple questions into a single turn.
+- Work through the curriculum one topic at a time. Probe a topic until you can fairly score it, then move on.
+- Be specific and scenario-based ("A senior's bed is against a wall the motion sensor can't see — what do you do?"). Avoid vague trivia.
+- After the provider answers, briefly acknowledge what was right or wrong (1-2 sentences) before asking your next question. Be supportive, never demeaning.
+- If an answer reveals a safety or compliance gap, probe deeper rather than letting it slide. A wrong answer on a safety-critical point must lower that topic's score.
+- Hold the HeyGrand care-compliance bar: dignity, privacy, consent, no medical advice, and always escalating genuine safety concerns to staff.
+- When every topic is assessed and the provider has demonstrated solid understanding, congratulate them and tell them they are ready for certification review. Do not certify them yourself — a super-admin makes the final call.
+
+SCORING (you fill in the structured fields each turn):
+- For each curriculum topic, set covered=true once you've genuinely assessed it, give a 0-100 score reflecting demonstrated competency, and keep concise notes.
+- A topic passes at ${TRAINING_PASS_SCORE}/100 or above. Be honest — do not inflate scores.
+- Add to redFlags any answer that shows a serious safety, ethical, or compliance problem (e.g. willing to give medical advice, would leave an area unmonitored, would ignore a mention of a fall).
+
+Always return the structured JSON: your conversational reply plus the updated per-topic assessment.`;
+}
+
+const trainingResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    reply: { type: Type.STRING },
+    currentTopic: { type: Type.STRING },
+    topics: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          topic: { type: Type.STRING },
+          covered: { type: Type.BOOLEAN },
+          score: { type: Type.NUMBER },
+          notes: { type: Type.STRING },
+        },
+        required: ["topic", "covered", "score", "notes"],
+      },
+    },
+    redFlags: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ["reply", "topics"],
+};
+
+/**
+ * Merge the model's per-turn assessment into the prior progress, then compute
+ * aggregates (overall score, understanding level, certification readiness)
+ * deterministically rather than trusting the model with the final verdict.
+ */
+function applyTrainingAssessment(
+  prior: TrainingProgress,
+  raw: any,
+  type: ServiceProviderType,
+): TrainingProgress {
+  const rubric = TRAINING_RUBRICS[type];
+  const incoming = new Map<string, any>(
+    Array.isArray(raw?.topics) ? raw.topics.filter((t: any) => t && typeof t.topic === "string").map((t: any) => [t.topic, t]) : [],
+  );
+
+  const topics: TrainingTopicProgress[] = rubric.topics.map((rt) => {
+    const prev = prior.topics.find((p) => p.topic === rt.key);
+    const inc = incoming.get(rt.key);
+    let covered = prev?.covered ?? false;
+    let score = prev?.score ?? 0;
+    let notes = prev?.notes ?? "";
+    if (inc) {
+      if (typeof inc.covered === "boolean") covered = inc.covered;
+      if (inc.score !== undefined && inc.score !== null) score = clampScore(inc.score);
+      if (typeof inc.notes === "string" && inc.notes.trim()) notes = inc.notes.trim();
+    }
+    return { topic: rt.key, label: rt.label, covered, score, notes };
+  });
+
+  const newFlags = Array.isArray(raw?.redFlags)
+    ? (raw.redFlags as unknown[]).filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim())
+    : [];
+  const redFlags = Array.from(new Set([...prior.redFlags, ...newFlags]));
+
+  const overallScore = Math.round(topics.reduce((s, t) => s + t.score, 0) / topics.length);
+  const allCovered = topics.every((t) => t.covered);
+  const allPass = topics.every((t) => t.score >= TRAINING_PASS_SCORE);
+  const readyForCertification = allCovered && allPass && redFlags.length === 0;
+  const questionsAsked = prior.questionsAsked + 1;
+
+  let understandingLevel: TrainingProgress["understandingLevel"];
+  if (overallScore >= 85 && allCovered) understandingLevel = "mastered";
+  else if (overallScore >= TRAINING_PASS_SCORE) understandingLevel = "proficient";
+  else understandingLevel = "developing";
+
+  const currentTopic =
+    typeof raw?.currentTopic === "string" && rubric.topics.some((t) => t.key === raw.currentTopic)
+      ? raw.currentTopic
+      : topics.find((t) => !t.covered)?.topic ?? null;
+
+  return {
+    providerType: type,
+    topics,
+    currentTopic,
+    questionsAsked,
+    overallScore,
+    understandingLevel,
+    redFlags,
+    readyForCertification,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Training Agent turn. Given a service provider, their latest message, and the
+ * conversation history, returns the examiner's next question plus the updated
+ * interview progress. The caller is responsible for persisting `progress` to
+ * `serviceProviders.trainingProgress` and appending both turns to `training_logs`.
+ *
+ * `history` roles map: "training_agent" -> model, anything else -> user.
+ */
+export async function generateTrainingResponse(
+  provider: ServiceProvider,
+  message: string,
+  history: { role: string; content: string }[],
+): Promise<TrainingTurnResult> {
+  const prior = normalizePriorProgress(provider.trainingProgress, provider.type);
+  const aiClient = await getAIForEntity(provider.entityId);
+
+  if (!aiClient) {
+    log("No Gemini API key set (global or entity-level); Training Agent unavailable", "ai-engine");
+    return {
+      reply:
+        "The certification system is temporarily unavailable. Please try again shortly, and we'll pick up right where we left off.",
+      progress: { ...prior, updatedAt: new Date().toISOString() },
+    };
+  }
+
+  const systemInstruction = buildTrainingSystemInstruction(provider);
+
+  const contents: any[] = [];
+  for (const msg of buildConversationContext(history)) {
+    contents.push({
+      role: msg.role === "training_agent" || msg.role === "assistant" || msg.role === "model" ? "model" : "user",
+      parts: [{ text: msg.content }],
+    });
+  }
+
+  // Anchor the model to the current rubric state so it stays consistent across turns.
+  const progressNote = `[Examiner progress so far — keep scoring consistent with this]\n${summarizeProgressForPrompt(prior)}`;
+  const trimmedMessage = message.trim();
+  const turnText = trimmedMessage
+    ? `${progressNote}\n\nThe provider just said: "${trimmedMessage}"\n\nAcknowledge their answer, update your assessment, and ask your next single question (or conclude if every topic is assessed).`
+    : `${progressNote}\n\nThis is the start of the interview. Greet ${provider.name}, briefly explain how the certification works, and ask your first single question.`;
+  contents.push({ role: "user", parts: [{ text: turnText }] });
+
+  try {
+    const response = await aiClient.models.generateContent({
+      model: getModelName(),
+      contents,
+      config: {
+        systemInstruction,
+        maxOutputTokens: 600,
+        temperature: 0.4,
+        responseMimeType: "application/json",
+        responseSchema: trainingResponseSchema,
+      },
+    });
+
+    let raw: any = null;
+    try {
+      const match = (response.text || "").match(/\{[\s\S]*\}/);
+      raw = match ? JSON.parse(match[0]) : null;
+    } catch (parseErr) {
+      log(`Training Agent parse error: ${parseErr}`, "ai-engine");
+    }
+
+    // An unparseable response is a model failure — treat it like a transport
+    // error and leave progress untouched so we never advance or corrupt the
+    // assessment on garbage output.
+    if (!raw || typeof raw !== "object") {
+      return {
+        reply: "I had trouble processing that. Could you repeat or expand on your last answer?",
+        progress: { ...prior, updatedAt: new Date().toISOString() },
+      };
+    }
+
+    const progress = applyTrainingAssessment(prior, raw, provider.type);
+    const reply =
+      typeof raw?.reply === "string" && raw.reply.trim()
+        ? raw.reply.trim()
+        : "Thank you. Could you walk me through that in a bit more detail?";
+
+    return { reply, progress };
+  } catch (error) {
+    log(`Training Agent error: ${error}`, "ai-engine");
+    // On model/transport failure, do not advance the assessment — let the
+    // provider retry without losing or corrupting their progress.
+    return {
+      reply:
+        "I ran into a problem on my end. Let's try that again — could you repeat or expand on your last answer?",
+      progress: { ...prior, updatedAt: new Date().toISOString() },
+    };
   }
 }
