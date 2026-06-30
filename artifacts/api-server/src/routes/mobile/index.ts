@@ -9,6 +9,7 @@ import type { OnboardingProfile } from "@workspace/db";
 import { broadcastToClients } from "../../ws-broadcast";
 import { log } from "../../logger-util";
 import { dailyLogger } from "../../daily-logger";
+import { authorizeEntityProviderCapability, SETUP_ALLOWED_STATUSES } from "../../services/provider-authorization";
 
 const router = Router();
 
@@ -188,6 +189,18 @@ router.post("/respond", mobileAuthMiddleware, async (req, res) => {
     // route the message to the specialized Intake Agent instead of the
     // Dual-Agent (Companion + Monitor) flow.
     if (resident.onboardingStatus !== "completed") {
+      // Only spin up an onboarding intake agent when the resident's facility has
+      // a certified/approved agent_sp authorized to run interviews for seniors.
+      const intakeAuth = await authorizeEntityProviderCapability({
+        entityId: resident.entityId,
+        requiredType: "agent_sp",
+        allowedStatuses: SETUP_ALLOWED_STATUSES,
+        action: `onboarding intake for resident ${resident.id}`,
+      });
+      if (!intakeAuth.ok) {
+        return res.status(intakeAuth.httpStatus!).json({ error: intakeAuth.error });
+      }
+
       const intake = await runIntakeTurn({
         resident,
         conversationId: conv.id,

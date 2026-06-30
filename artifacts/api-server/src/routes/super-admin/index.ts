@@ -14,8 +14,24 @@ import {
   signPending2FAToken,
   superAdminAuthMiddleware,
 } from "../../middleware/super-admin-auth";
+import {
+  authorizeServiceProvider,
+  extractRequestingProviderId,
+  SETUP_ALLOWED_STATUSES,
+} from "../../services/provider-authorization";
 
 const router = Router();
+
+// Resolves the entity scope used to authorize the acting service provider for a
+// facility environment change: prefer the facility's linked entity, falling back
+// to an explicit `x-entity-id` header / `entityId` body field for create flows
+// where no facility row exists yet.
+function resolveFacilityEntityId(req: any, facility?: { linkedEntityId: number | null }): number | undefined {
+  if (facility?.linkedEntityId) return facility.linkedEntityId;
+  const raw = req.header("x-entity-id") ?? req.body?.entityId;
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : undefined;
+}
 
 function getJwtSecret(): string {
   const secret = process.env.SESSION_SECRET;
@@ -418,6 +434,14 @@ router.get("/facilities/:id", superAdminAuthMiddleware, async (req, res) => {
 
 router.post("/facilities", superAdminAuthMiddleware, async (req, res) => {
   try {
+    const auth = await authorizeServiceProvider({
+      entityId: resolveFacilityEntityId(req),
+      serviceProviderId: extractRequestingProviderId(req),
+      allowedStatuses: SETUP_ALLOWED_STATUSES,
+      action: "facility environment create",
+    });
+    if (!auth.ok) return res.status(auth.httpStatus!).json({ error: auth.error });
+
     const { facilityId, name, address, contactEmail, contactPhone, installationUrl, status, geminiApiKey, configJson } = req.body;
     if (!facilityId || !name) {
       return res.status(400).json({ error: "facilityId and name are required" });
@@ -447,6 +471,17 @@ router.post("/facilities", superAdminAuthMiddleware, async (req, res) => {
 });
 
 router.patch("/facilities/:id", superAdminAuthMiddleware, async (req, res) => {
+  const facility = await storage.getFacility(Number(req.params.id));
+  if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+  const auth = await authorizeServiceProvider({
+    entityId: resolveFacilityEntityId(req, facility),
+    serviceProviderId: extractRequestingProviderId(req),
+    allowedStatuses: SETUP_ALLOWED_STATUSES,
+    action: `facility environment update (facility ${facility.id})`,
+  });
+  if (!auth.ok) return res.status(auth.httpStatus!).json({ error: auth.error });
+
   const updated = await storage.updateFacility(Number(req.params.id), req.body);
   if (!updated) return res.status(404).json({ error: "Facility not found" });
   res.json({ ...updated, geminiApiKey: updated.geminiApiKey ? "****" + updated.geminiApiKey.slice(-4) : null });
@@ -510,6 +545,14 @@ router.post("/facilities/:id/push-config", superAdminAuthMiddleware, async (req,
   try {
     const facility = await storage.getFacility(Number(req.params.id));
     if (!facility) return res.status(404).json({ error: "Facility not found" });
+
+    const auth = await authorizeServiceProvider({
+      entityId: resolveFacilityEntityId(req, facility),
+      serviceProviderId: extractRequestingProviderId(req),
+      allowedStatuses: SETUP_ALLOWED_STATUSES,
+      action: `facility environment config push (facility ${facility.id})`,
+    });
+    if (!auth.ok) return res.status(auth.httpStatus!).json({ error: auth.error });
 
     if (!facility.installationUrl) {
       return res.status(400).json({ error: "Facility has no installation URL configured" });
