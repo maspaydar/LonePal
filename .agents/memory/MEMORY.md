@@ -1,4 +1,5 @@
 - [Super-admin 2FA enforcement](super-admin-2fa-enforcement.md) — 2FA is mandatory for all super admins via a router gate; un-enrolled admins are 403'd from sensitive routes and forced to enroll on login.
+- [Slide overflow / layout](slide-overflow-layout.md) — fixed-viewport slides silently clip below 100vh; avoid mt-auto/justify-* for trailing blocks, prefer one-line copy + explicit vh margins.
 - [WebSocket multi-tenant isolation](ws-tenant-isolation.md) — single global /ws; isolation is server-side: sockets tagged with entityId at handshake, broadcasts must carry entityId or they leak to all tenants.
 - [Companion persona prompt paths](companion-persona-paths.md) — the companion's system prompt is built in two separate functions (ai-engine vs persona-service); persona changes must touch both + invalidate cache.
 - [HeyGrand server entry pattern](heygrand-server-entry.md) — registerRoutes(httpServer, app) pattern preserved from original; log() in logger-util.ts to break circular dep; no OpenAPI codegen — original fetch layer kept.

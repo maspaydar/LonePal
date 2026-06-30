@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-primary: var(--slide-primary);
+  --color-primary-deep: var(--slide-primary-deep);
+  --color-accent: var(--slide-accent);
+  --color-bg: var(--slide-bg);
+  --color-ink: var(--slide-ink);
+  --color-text: var(--slide-text);
+  --color-muted: var(--slide-muted);
+  --color-alert: var(--slide-alert);
+  --color-line: var(--slide-line);
+  --font-display: var(--font-display-family);
+  --font-body: var(--font-body-family);
+  --font-hand: var(--font-hand-family);
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: calc(1 / 0.75);
+  --text-sm: 0.875rem;
+  --text-sm--line-height: calc(1.25 / 0.875);
+  --text-base: 1rem;
+  --text-base--line-height: calc(1.5 / 1);
+  --text-lg: 1.125rem;
+  --text-lg--line-height: calc(1.75 / 1.125);
+  --text-xl: 1.25rem;
+  --text-xl--line-height: calc(1.75 / 1.25);
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: calc(2 / 1.5);
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: calc(2.25 / 1.875);
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: calc(2.5 / 2.25);
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 1;
+  --text-6xl: 3.75rem;
+  --text-6xl--line-height: 1;
+  --text-7xl: 4.5rem;
+  --text-7xl--line-height: 1;
+  --text-8xl: 6rem;
+  --text-8xl--line-height: 1;
+  --text-9xl: 8rem;
+  --text-9xl--line-height: 1;
+}
+
+:root {
+  /* HeyGrand brand palette — pulled from the app's index.css :root (healthcare teal/slate) */
+  --slide-primary: hsl(174 62% 38%);
+  --slide-primary-deep: hsl(174 64% 24%);
+  --slide-accent: hsl(174 35% 92%);
+  --slide-bg: hsl(210 20% 98%);
+  --slide-ink: hsl(215 28% 10%);
+  --slide-text: hsl(215 25% 15%);
+  --slide-muted: hsl(215 12% 50%);
+  --slide-alert: hsl(0 72% 51%);
+  --slide-line: hsl(214 15% 88%);
+  --font-display-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-body-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-hand-family: "Architects Daughter", "Plus Jakarta Sans", sans-serif;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--slide-bg);
+  color: var(--slide-text);
+  font-family: var(--font-body-family);
+}
+
+.slide {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.slide-viewer {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}

@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "bsB9aNiS-htoAOuxWjKmH"
+uri = "file://artifacts/heygrand-investor-deck/public/hero-home.png"
+type = "image"
+title = "warm senior home"

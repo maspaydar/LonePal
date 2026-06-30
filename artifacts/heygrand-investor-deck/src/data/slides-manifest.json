@@ -1,0 +1,90 @@
+[
+  {
+    "id": "1999db23-33e1-450e-9397-1bed0770d277",
+    "position": 1,
+    "filepath": "src/pages/slides/Cover.tsx",
+    "title": "Cover",
+    "description": "Title slide — HeyGrand brand lockup and pitch framing.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "dc9442e9-befa-4d71-996f-0ee7ebc95559",
+    "position": 2,
+    "filepath": "src/pages/slides/Problem.tsx",
+    "title": "The problem",
+    "description": "Falls and inactivity go unnoticed; reactive tools, stretched staff, anxious families.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "bb6ff037-d76b-489e-bfeb-f0c2005131b4",
+    "position": 3,
+    "filepath": "src/pages/slides/Solution.tsx",
+    "title": "The solution",
+    "description": "Always-on care: passive monitoring, AI companion, real-time alerts.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "326b06d1-de48-4f07-9c76-a4dadc7b4aea",
+    "position": 4,
+    "filepath": "src/pages/slides/HowItWorks.tsx",
+    "title": "How it works",
+    "description": "Dual-agent architecture — companion talks, monitor watches, red alerts to staff.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "cece02a3-e79e-4322-9291-fd2b67c125e1",
+    "position": 5,
+    "filepath": "src/pages/slides/Product.tsx",
+    "title": "The product",
+    "description": "Four surfaces: Staff Nexus, Super-Admin hub, resident companion, resident web.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "12bb088e-c9c3-4cb4-af20-5380efb9490b",
+    "position": 6,
+    "filepath": "src/pages/slides/Technology.tsx",
+    "title": "Technology & hardware",
+    "description": "Dual-hardware paths, Gemini AI core, multi-tenant isolation, HMAC integrity.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "73cf8b5d-a453-4d88-b6ff-aa42ef8ac637",
+    "position": 7,
+    "filepath": "src/pages/slides/Market.tsx",
+    "title": "Market opportunity",
+    "description": "Aging demographics and illustrative TAM/SAM/SOM sizing.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "53a64804-a194-4f0d-a4b3-097b9ee7caab",
+    "position": 8,
+    "filepath": "src/pages/slides/BusinessModel.tsx",
+    "title": "Business model",
+    "description": "Per-facility B2B SaaS: sign-up, 30-day trial, Stripe subscription, lifecycle.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "1947c126-8821-43a0-94ba-6bfa0d7f0599",
+    "position": 9,
+    "filepath": "src/pages/slides/WhyWeWin.tsx",
+    "title": "Why we win",
+    "description": "Five differentiators forming the competitive moat.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "de44a6d0-f63e-48bf-af70-72420ce1de1f",
+    "position": 10,
+    "filepath": "src/pages/slides/Traction.tsx",
+    "title": "Traction & roadmap",
+    "description": "What's live today plus illustrative roadmap targets.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "1ab8d453-d0c7-4708-b2ef-e9b0f3e6bac7",
+    "position": 11,
+    "filepath": "src/pages/slides/TheAsk.tsx",
+    "title": "The ask",
+    "description": "Illustrative funding ask, use of funds, and closing lockup.",
+    "speakerNotes": ""
+  }
+]
