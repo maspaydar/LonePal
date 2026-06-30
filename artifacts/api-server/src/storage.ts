@@ -27,7 +27,7 @@ import {
   type RecoveryExecutionLog, type InsertRecoveryExecutionLog,
   type Memory, type InsertMemory,
   type MonitoringObservation, type InsertMonitoringObservation,
-  type ServiceProvider, type InsertServiceProvider, type ServiceProviderType,
+  type ServiceProvider, type InsertServiceProvider, type ServiceProviderType, type ServiceProviderStatus,
   type TrainingLog, type InsertTrainingLog,
   users, entities, residents, sensors, esp32SensorData, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
@@ -210,6 +210,7 @@ export interface IStorage {
   getServiceProvider(entityId: number, id: number): Promise<ServiceProvider | undefined>;
   createServiceProvider(entityId: number, data: Omit<InsertServiceProvider, "entityId">): Promise<ServiceProvider>;
   updateServiceProvider(entityId: number, id: number, data: Partial<InsertServiceProvider>): Promise<ServiceProvider | undefined>;
+  updateServiceProviderStatusIfCurrent(entityId: number, id: number, fromStatus: ServiceProviderStatus, toStatus: ServiceProviderStatus): Promise<ServiceProvider | undefined>;
 
   // Training Logs (entity-scoped)
   getTrainingLogs(entityId: number, serviceProviderId: number): Promise<TrainingLog[]>;
@@ -1179,6 +1180,27 @@ export class DatabaseStorage implements IStorage {
     const { entityId: _ignored, ...rest } = data;
     const [updated] = await db.update(serviceProviders).set(rest)
       .where(and(eq(serviceProviders.entityId, entityId), eq(serviceProviders.id, id)))
+      .returning();
+    return updated;
+  }
+
+  async updateServiceProviderStatusIfCurrent(
+    entityId: number,
+    id: number,
+    fromStatus: ServiceProviderStatus,
+    toStatus: ServiceProviderStatus,
+  ): Promise<ServiceProvider | undefined> {
+    // Atomic, conditional transition: the WHERE clause includes the expected
+    // current status, so a single SQL UPDATE both checks and sets in one step.
+    // Returns the row only if it actually transitioned — concurrent callers and
+    // stale in-memory status can never overwrite a provider that has already
+    // moved on (e.g. to 'approved').
+    const [updated] = await db.update(serviceProviders).set({ status: toStatus })
+      .where(and(
+        eq(serviceProviders.entityId, entityId),
+        eq(serviceProviders.id, id),
+        eq(serviceProviders.status, fromStatus),
+      ))
       .returning();
     return updated;
   }

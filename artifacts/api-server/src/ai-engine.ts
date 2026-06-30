@@ -1354,3 +1354,205 @@ export async function generateTrainingResponse(
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Automated certification evaluation loop
+//
+// A silent, analysis-only second pass (mirrors the Companion/Monitor split):
+// after each training interaction it grades the full interview against the
+// provider's rubric and emits a structured verdict. When the verdict is a
+// confident pass, the orchestrator promotes the provider 'in_training' ->
+// 'certified' in the database and hands back a congratulatory message.
+// ---------------------------------------------------------------------------
+
+export interface TrainingEvaluation {
+  /** Rubric milestones the provider has clearly demonstrated. */
+  criteria_met: string[];
+  /** 0-100 overall competence score from the silent evaluator. */
+  score_out_of_100: number;
+  /** Evaluator's recommendation. Honored only with the safety guards below. */
+  certified: boolean;
+  /** One-paragraph rationale, surfaced to the provider on certification. */
+  feedback_summary: string;
+}
+
+// Score the silent evaluator must meet (in addition to certified=true) before
+// we auto-promote. Deliberately above the per-topic pass bar — certification is
+// a higher bar than "passing a question".
+const CERTIFICATION_SCORE_THRESHOLD = 85;
+
+// When the evaluator cannot run (no key, parse failure, transport error) we must
+// NEVER auto-certify. Default to a non-certifying verdict so a failure can only
+// ever defer certification, never grant it.
+const DEFAULT_EVALUATION: TrainingEvaluation = {
+  criteria_met: [],
+  score_out_of_100: 0,
+  certified: false,
+  feedback_summary: "Automated competence evaluation is unavailable; certification deferred for manual review.",
+};
+
+const trainingEvaluationSchema = {
+  type: Type.OBJECT,
+  properties: {
+    criteria_met: { type: Type.ARRAY, items: { type: Type.STRING } },
+    score_out_of_100: { type: Type.NUMBER },
+    certified: { type: Type.BOOLEAN },
+    feedback_summary: { type: Type.STRING },
+  },
+  required: ["criteria_met", "score_out_of_100", "certified", "feedback_summary"],
+};
+
+function parseTrainingEvaluation(text: string): TrainingEvaluation | null {
+  try {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const p = JSON.parse(match[0]);
+    const criteria_met = Array.isArray(p.criteria_met)
+      ? (p.criteria_met as unknown[]).filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim())
+      : [];
+    return {
+      criteria_met,
+      score_out_of_100: clampScore(p.score_out_of_100),
+      certified: p.certified === true,
+      feedback_summary: typeof p.feedback_summary === "string" ? p.feedback_summary.trim() : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Silent background grader. Reviews the full interview transcript against the
+ * provider's rubric and returns a structured competence verdict. Never speaks to
+ * the provider and never certifies on failure (always falls back to
+ * DEFAULT_EVALUATION). Entity-scoped via provider.entityId.
+ */
+export async function evaluateTrainingCompetence(
+  provider: ServiceProvider,
+  history: { role: string; content: string }[],
+): Promise<TrainingEvaluation> {
+  const aiClient = await getAIForEntity(provider.entityId);
+  if (!aiClient) {
+    log("No Gemini API key set (global or entity-level); certification evaluation deferred", "ai-engine");
+    return { ...DEFAULT_EVALUATION };
+  }
+
+  const rubric = TRAINING_RUBRICS[provider.type];
+  const transcript = buildConversationContext(history)
+    .map((m) => `${m.role === "training_agent" || m.role === "assistant" || m.role === "model" ? "Examiner" : "Provider"}: ${m.content}`)
+    .join("\n");
+  const criteriaList = rubric.topics.map((t) => `- ${t.label}`).join("\n");
+
+  const systemInstruction = `You are a SILENT certification evaluator for the HeyGrand senior-care platform. You NEVER speak to the provider and NEVER produce conversational text — you only output a single structured JSON judgment. You decide whether ${provider.name}, a ${rubric.label}, has demonstrated the competence required to be certified. ${rubric.focus} Hold a strict, safety-first bar: in senior care, an under-qualified provider can put vulnerable people at risk. You are analysis-only.`;
+
+  const prompt = `Required competence criteria for a ${rubric.label}:
+${criteriaList}
+
+Full interview transcript:
+${transcript || "(no conversation yet)"}
+
+Grade the provider against EVERY required criterion based only on what they actually demonstrated in the transcript. Return ONLY a JSON object with this exact shape:
+{
+  "criteria_met": ["<labels of criteria the provider has clearly demonstrated>"],
+  "score_out_of_100": <integer 0-100 overall competence>,
+  "certified": <boolean>,
+  "feedback_summary": "<2-3 sentence summary of their readiness and any gaps>"
+}
+Set "certified" to true ONLY if the provider has clearly demonstrated EVERY required criterion, the overall score is high (85 or above), and there are no unaddressed safety or compliance red flags. When in doubt, do not certify.`;
+
+  try {
+    const response = await aiClient.models.generateContent({
+      model: getModelName(),
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction,
+        maxOutputTokens: 400,
+        temperature: 0.2,
+        responseMimeType: "application/json",
+        responseSchema: trainingEvaluationSchema,
+      },
+    });
+    // Unparseable output is an evaluator failure, not a pass — defer certification.
+    return parseTrainingEvaluation(response.text || "") || { ...DEFAULT_EVALUATION };
+  } catch (error) {
+    log(`Certification evaluation error: ${error}`, "ai-engine");
+    return { ...DEFAULT_EVALUATION };
+  }
+}
+
+function buildCertificationMessage(provider: ServiceProvider, evaluation: TrainingEvaluation): string {
+  const rubric = TRAINING_RUBRICS[provider.type];
+  const feedback = evaluation.feedback_summary ? ` ${evaluation.feedback_summary}` : "";
+  return `Congratulations, ${provider.name} — you've successfully demonstrated competence as a ${rubric.label}, scoring ${evaluation.score_out_of_100}/100.${feedback} I've forwarded your credentials to the HeyGrand Super-Admin for final environment activation. You'll be cleared to begin as soon as they complete the activation. Wonderful work — the seniors in our care will be in excellent hands with you.`;
+}
+
+export interface TrainingInteractionResult {
+  /** Message to send the provider — the examiner's next question, or the congratulatory note on certification. */
+  reply: string;
+  /** Updated interview state — caller persists this to serviceProviders.trainingProgress. */
+  progress: TrainingProgress;
+  /** Structured verdict from the silent background evaluator. */
+  evaluation: TrainingEvaluation;
+  /** True when this interaction promoted the provider to 'certified' in the DB. */
+  certified: boolean;
+}
+
+/**
+ * Orchestrates one full training interaction: runs the conversational Training
+ * Agent and the silent certification evaluator in parallel, and — when the
+ * evaluator returns a confident, high-scoring pass with no outstanding red flags
+ * and the provider is currently 'in_training' — auto-promotes them to
+ * 'certified' in the database (entity-scoped) and returns a congratulatory
+ * message instead of the next question.
+ *
+ * The status transition is the only DB write performed here; the caller still
+ * persists `progress` and appends both turns to training_logs.
+ */
+export async function runTrainingInteraction(
+  provider: ServiceProvider,
+  message: string,
+  history: { role: string; content: string }[],
+): Promise<TrainingInteractionResult> {
+  // Evaluate over the transcript INCLUDING the provider's latest message.
+  const trimmed = message.trim();
+  const evalHistory = trimmed ? [...history, { role: "service_provider", content: trimmed }] : history;
+
+  const [turn, evaluation] = await Promise.all([
+    generateTrainingResponse(provider, message, history),
+    evaluateTrainingCompetence(provider, evalHistory),
+  ]);
+
+  // Auto-certify only when the silent evaluator is confident, the score clears
+  // the certification bar, and no safety red flags remain. We do a fast in-memory
+  // pre-check on the passed-in status to avoid an unnecessary write, but the
+  // authoritative gate is the atomic conditional update below.
+  const noRedFlags = turn.progress.redFlags.length === 0;
+  const evaluatorPasses =
+    evaluation.certified && evaluation.score_out_of_100 >= CERTIFICATION_SCORE_THRESHOLD && noRedFlags;
+
+  let certified = false;
+  let reply = turn.reply;
+
+  if (evaluatorPasses && provider.status === "in_training") {
+    try {
+      // Atomic transition: only flips 'in_training' -> 'certified'. If the row is
+      // no longer in_training (concurrent call or stale object), nothing updates
+      // and we fall through to the normal training reply — never re-certifying or
+      // clobbering a later status like 'approved'.
+      const updated = await storage.updateServiceProviderStatusIfCurrent(
+        provider.entityId,
+        provider.id,
+        "in_training",
+        "certified",
+      );
+      certified = !!updated;
+    } catch (error) {
+      log(`Training certification status update failed: ${error}`, "ai-engine");
+    }
+    if (certified) {
+      reply = buildCertificationMessage(provider, evaluation);
+    }
+  }
+
+  return { reply, progress: turn.progress, evaluation, certified };
+}
