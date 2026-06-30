@@ -1,0 +1,39 @@
+# Replit Agent Prompt — HeyGrand Code Cleanup & Security Hardening
+
+Copy everything below into your Replit Agent chat.
+
+---
+
+Act as a Principal Full-Stack Engineer doing a cleanup and security pass on this repo (HeyGrand — pnpm workspace, Express 5 API server in `artifacts/api-server`, React/Vite frontend in `artifacts/heygrand`, Drizzle/Postgres schema in `lib/db`). Work in small, reviewable commits. Do not break existing functionality — after every change, run `pnpm run typecheck` and `pnpm run build` and fix anything that fails before moving on. Do not invent new product features; this is a cleanup and hardening pass only.
+
+## Part 1 — Remove duplication and dead code
+
+1. Compare `artifacts/api-server/src/routes/esp32.ts` and `artifacts/api-server/src/routes/iot/index.ts`. They expose nearly identical endpoints (`/register`, `/heartbeat`, `/sensor-data`, `/status/:deviceMac`). Determine which one is actually mounted and used in `routes.ts` / `routes/index.ts`, confirm with the frontend and any ESP32 firmware references, delete the unused one, and update imports.
+2. Find the two Stripe webhook routes (`/api/stripe/webhook` and `/api/webhooks/stripe`) and the two ADT webhook routes (`/api/safety/adt-webhook/:entityId/:userId` and `/api/webhook/adt`). Identify which one is configured in Stripe's dashboard / ADT's integration settings (check env vars, docs, or ask me if it's not in the repo) and remove the unused duplicate.
+3. Search the whole repo for other duplicate or orphaned route files, especially anything that looks like a leftover from `.migration-backup/`. Confirm `.migration-backup/` isn't imported anywhere, then remove it from the active workspace (keep it in git history, just don't ship it).
+4. Run a dead-code scan (e.g. `ts-prune` or manual grep for unused exports) across `artifacts/api-server/src` and `artifacts/heygrand/src` and report anything unused before deleting it — don't delete silently, list candidates for me to confirm first.
+
+## Part 2 — Centralize auth and middleware
+
+5. Audit all six middleware files (`company-auth.ts`, `super-admin-auth.ts`, `mobile-auth.ts`, `maintenance-auth.ts`, `tenant-resolver.ts`, `vpc-auth.ts`). Extract the shared logic (JWT verification, token expiry checks, signature validation) into a single reusable helper (e.g. `lib/auth/verify-token.ts`) so each middleware calls the same core function instead of reimplementing JWT handling independently. Keep the role-specific authorization logic in each middleware, only the token verification mechanics should be shared.
+6. Confirm every protected route actually applies the correct middleware for its tier (company vs mobile vs super-admin vs IoT/VPC). Produce a table mapping each route file to the middleware it uses, and flag any route that has no auth middleware applied but looks like it should (anything touching resident data, billing, or admin actions).
+7. Verify tenant isolation: every query that reads or writes resident/unit/sensor data must be scoped by `entityId` derived from the authenticated session — not from a client-supplied parameter alone. Specifically check the IoT ingest routes and mobile routes, since those are the most likely places for a tenant to read another tenant's data if the `entityId` in the URL isn't cross-checked against the authenticated device/user's actual entity.
+
+## Part 3 — Security guardrails to implement
+
+8. **Webhook signature verification**: confirm the Stripe webhook route verifies `stripe-signature` against the webhook secret before processing, and that the ADT webhook route verifies whatever signature/auth scheme ADT provides. If either is missing, add it and reject unsigned/invalid requests with 401 before touching the database.
+9. **Input validation**: every route handler that accepts a request body should validate it with a zod schema (the repo already has `lib/api-zod` — use it) before passing data to the storage layer. Add schemas for any POST/PATCH/PUT route currently missing one.
+10. **Rate limiting**: add rate limiting (e.g. `express-rate-limit`) on all auth endpoints (`/auth/login`, `/auth/register`, `/login` variants across company/mobile/super-admin) and on the public registration/verify-email endpoints, to slow down brute force and abuse.
+11. **Secrets hygiene**: grep the repo for hardcoded secrets, API keys, or credentials (including in `.agents/`, `attached_assets/`, and any seed/demo scripts). Confirm `DATABASE_URL`, Stripe keys, the Gemini API key, and JWT signing secrets are only ever read from `process.env` and never committed. Add/update `.env.example` listing required vars without values.
+12. **Super-admin 2FA**: confirm 2FA is actually enforced on every super-admin route, not just login (check `.agents/memory/super-admin-2fa-enforcement.md` for the intended behavior and verify the code matches it). Close any path where a super-admin session could be used without completing 2FA.
+13. **CORS and security headers**: confirm CORS is locked down to known frontend origins (not `*`) in production, and add `helmet` (or equivalent headers) to the Express app if not already present.
+14. **Error handling**: confirm error responses never leak stack traces, SQL, or internal paths to the client in production. Centralize error handling in one middleware if it isn't already.
+15. **Dependency audit**: run `pnpm audit` and report any high/critical vulnerabilities. Don't auto-upgrade major versions without listing breaking changes first.
+16. **Logging**: confirm `log-streamer.ts` and any console logging don't write PII (resident names, emails, phone numbers, raw tokens) into logs or the `central_log_entries` table in plaintext. Redact or hash where appropriate.
+
+## Process requirements
+
+- After each numbered item, summarize what you changed and why in a short changelog entry (append to a new `CHANGELOG-cleanup.md` at the repo root).
+- If a fix is ambiguous or risks breaking a flow you can't fully verify (e.g. which webhook URL is actually live in Stripe), stop and ask me instead of guessing.
+- Don't change the DB schema (`lib/db/src/schema/schema.ts`) as part of this pass unless a fix strictly requires it — flag schema changes separately for review.
+- When finished, give me a final summary: what was removed, what was added, what's still open/needs my input (e.g. external config like Stripe dashboard webhook URLs), and any remaining security risks you didn't fix and why.
