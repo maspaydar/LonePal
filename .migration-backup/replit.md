@@ -1,0 +1,83 @@
+# HeyGrand
+
+## Overview
+HeyGrand is a multi-tenant, AI-powered safety monitoring system designed for senior living facilities. Its primary purpose is to enhance resident safety through proactive inactivity detection, personalized check-ins, and a comprehensive suite of administrative tools. The system integrates various hardware sensors (ADT motion sensors, ESP32 mmWave sensors) with Google Gemini AI for intelligent scenario-based monitoring. It offers a secure and isolated environment for each facility, with capabilities for remote management, health monitoring, and a voice-first mobile companion app for residents. The project aims to provide peace of mind for residents and caregivers by leveraging advanced AI and IoT technologies to create a responsive and intuitive safety net.
+
+## User Preferences
+- API key-based Gemini integration (not managed AI Integrations)
+- Multi-tenant file-based data isolation alongside database
+
+## System Architecture
+The system employs a multi-tenant architecture with data isolation at both the database level (PostgreSQL with `entityId` foreign keys) and the file system level (`/data/entities/[id]/` folders). The backend is built with Express.js, providing a robust API layer and WebSocket support for real-time communication. The frontend utilizes React, Vite, shadcn/ui, and Tailwind CSS for a responsive and modern user interface.
+
+**Key Architectural Components:**
+- **Dual-Hardware Architecture:** Supports both ADT motion sensors integrated with Google Home (`adt_google`) and custom ESP32-S3-BOX-3 units with HLK-LD2410 mmWave sensors (`esp32_custom`).
+- **Bidirectional Device Customization Pipeline:** Per-unit `device_settings` table (sensitivity, detection distance, AI check-in frequency, active hours window) is editable from the Resident Web App at `/resident/device-settings`. Device-facing endpoint `GET /api/devices/:mac/config` returns the JSON config with an HMAC-SHA256 `X-Signature` header (secret: `DEVICE_HMAC_SECRET`) for end-to-end integrity. Saving from the resident UI also pushes a `CONFIG_UPDATE` message over the existing ESP32 WebSocket so devices re-fetch and apply settings instantly without a re-flash. The same WS now also accepts `SENSOR_DATA`, `DEVICE_STATUS`, and `DIAGNOSTIC_RESPONSE` messages from the new firmware. Reference C++ firmware lives in `firmware/esp32-s3-box-3/` (PlatformIO).
+- **AI Engine:** Leverages Google Gemini 1.5 Flash for scenario-based inactivity detection, personalized check-ins, mood analysis, and conversational AI. It supports entity-specific API keys and lazy initialization.
+- **Smart Speaker Integration:** A `speaker-gateway` service handles pushing AI-generated audio check-ins to Google Home speakers, activates listen mode for voice responses, and respects quiet hours. ESP32 units use a dedicated WebSocket-based speaker service.
+- **Mobile Companion App:** A voice-first Expo React Native application provides residents with an AI companion chat, safety status, check-in alerts, and community announcements. It features PIN login, streaming AI responses via SSE, and Gemini audio transcription.
+- **Three-Tier Multi-Tenant SaaS Architecture:**
+  - **Level 1 (Super Admin):** `/super-admin/*` routes with TOTP 2FA, facility registry, remote health checks. Auth stored in `sa_token`/`sa_admin` localStorage keys.
+  - **Level 2 (Company Admin):** `/login` auth gate with `CompanyAuthGuard`. JWT stored as `co_token`/`co_user` in localStorage. `useCompanyAuth` hook provides `getEntityId()`, `setSession()`, `logout()`. All entity-scoped API queries use dynamic entityId. Sidebar shows user name, role, and logout button. User Management page (`/user-management`) visible to admin role only.
+  - **Level 3 (Mobile/Resident):** PIN-based login via mobile token endpoints. Available on both the Expo React Native app and a parallel **Resident Web App** (under `/resident/*`) that mirrors mobile features (login, waiting, home, voice/text chat with SSE streaming, announcements). The web app uses the same `/api/mobile/*` endpoints, stores its JWT in `localStorage` under `hg_resident_token`/`hg_resident_profile`, captures voice via `MediaRecorder` (sent as base64 to `/api/mobile/respond-stream`), and reads responses aloud via the browser `SpeechSynthesis` API.
+- **Super-Admin Command Hub:** A centralized dashboard for managing multiple HeyGrand facility installations, including authentication with TOTP 2FA, facility registry, remote configuration push, health monitoring, and a remote diagnostic & maintenance tunnel.
+- **Remote Diagnostic & Maintenance Tunnel:** Provides HMAC-signed access for remote log retrieval, service restarts, cache clearing, and system diagnostics for individual facilities.
+- **Tenant Isolation & Security:** `tenantResolver` middleware ensures data isolation. Mobile authentication uses JWTs with PIN-based login, DB-backed token revocation, and HMAC-SHA256 for Super-Admin remote commands.
+- **Data Storage:** PostgreSQL (Neon-backed via Drizzle ORM) for structured data, and file-based storage for tenant-specific profiles, conversations, and activity logs.
+- **UI/UX:** The administrative dashboards (Nexus and Super-Admin) feature intuitive UIs for resident monitoring, unit management, health maps, log streams, and recovery script execution. The mobile app prioritizes accessibility with large-text PIN entry and visual state indicators.
+
+## External Dependencies
+- **Database:** PostgreSQL (via Drizzle ORM)
+- **AI:** Google Gemini 1.5 Flash (@google/genai)
+- **Hardware Integration:**
+    - ADT (for motion sensor webhooks)
+    - Google Home (for smart speaker integration and audio output)
+    - ESP32-S3-BOX-3 with HLK-LD2410 mmWave sensors (for custom sensor and speaker functionality)
+- **Authentication:** `bcryptjs`, `jsonwebtoken`, `otplib` (for TOTP 2FA)
+- **Mobile Development:** Expo (expo-router, expo-secure-store, expo-av, expo-speech)
+- **Email:** Nodemailer (SMTP-based, falls back to console logging)
+
+## SaaS Self-Registration & Subscription Lifecycle
+
+### Registration Flow
+1. Facility admin visits `/register` → fills out facility name, contact name, email, password, phone (optional)
+2. System creates facility record in `pending_verification` state, sends verification email
+3. Admin clicks link in email → `/verify-email?token=...` → system creates entity + admin user records, transitions to `trial`
+4. 30-day free trial begins (`trialEndsAt = now + 30 days`)
+5. Login page at `/login` includes a "Register your facility" link
+
+### Subscription States (`subscriptionStatus`)
+- `pending_verification` — registered but email not yet verified
+- `trial` — email verified, 30-day free trial active
+- `active` — paid subscription (manually set by super admin or future Stripe integration)
+- `paused` — trial expired or subscription lapsed; login blocked with clear message
+- `cancelled` — cancelled by super admin; login blocked
+
+### Trial Lifecycle (Task #8)
+- **Trial scheduler** (`server/services/trial-scheduler.ts`): runs on server start and every 1 hour, queries facilities where `subscriptionStatus = trial AND trialEndsAt < NOW()` and transitions them to `paused`
+- **Login block**: `POST /api/company/auth/login` checks facility's `subscriptionStatus` via `getFacilityByLinkedEntityId(entityId)` and returns 403 with human-readable message for paused/cancelled states
+- **Super Admin controls** (`POST /api/super-admin/facilities/:id/subscription`): actions = approve (→active), extend-trial (+N days), pause, cancel, reactivate (→active)
+
+### Super Admin Dashboard Updates
+- Stats bar now shows 6 cards: Total, Pending Email, On Trial, Active, Residents, Issues
+- New "Registrations" panel tab (default active) with badge showing pending+trial count
+- Registrations panel: two tables — "Awaiting Email Verification" and "Active Trials" with action buttons (Activate, +30d, Pause)
+
+### Email Service (`server/services/email-service.ts`)
+- SMTP env vars: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `APP_URL`
+- Without SMTP config, emails are logged to console (dev mode)
+- Sends: verification email, welcome+credentials email (on verification), super admin notification
+
+### Database Migration Strategy
+This project uses `drizzle-kit push` (not migration files) for schema changes. All schema changes are automatically synchronized to the database by running `npm run db:push`. The facilities table schema with `subscriptionStatus` enum and all new fields has been verified in sync (`No changes detected`).
+
+### Storage Methods Added
+- `getFacilityByContactEmail(email)` — uniqueness check on registration
+- `getFacilityByVerificationToken(token)` — email verification lookup
+- `getFacilityByLinkedEntityId(entityId)` — subscription status check on login
+- `getExpiredTrialFacilities()` — scheduler query for expired trials
+
+### Family First-Run Onboarding
+- After a family account (entity `type === "family"`) logs in with **zero residents**, `FamilyOnboardingGate` (in `client/src/App.tsx`, wraps `AdminRouter` inside `AppLayout`) redirects them to `/welcome`.
+- `/welcome` (`client/src/pages/family-onboarding.tsx`) is a company-authed, sidebar-free wizard with jargon-free copy: Welcome → loved one's profile (pre-filled from `entity.name`, the loved one's name captured at sign-up) → check-in setup (frequency presets + awake-hours + optional device pairing code) → done.
+- The wizard calls existing endpoints: `POST /api/entities/:id/residents`, `POST /api/entities/:id/units`, `POST .../units/:unitId/assign-resident`, and the new company-side `PUT /api/entities/:id/units/:unitId/device-settings` (also `GET`) which upserts `device_settings` and pushes `CONFIG_UPDATE` to the ESP32 if a MAC is bound. Once a resident exists, the gate stops redirecting so families reach the normal dashboard.

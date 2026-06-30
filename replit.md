@@ -1,83 +1,70 @@
 # HeyGrand
 
-## Overview
-HeyGrand is a multi-tenant, AI-powered safety monitoring system designed for senior living facilities. Its primary purpose is to enhance resident safety through proactive inactivity detection, personalized check-ins, and a comprehensive suite of administrative tools. The system integrates various hardware sensors (ADT motion sensors, ESP32 mmWave sensors) with Google Gemini AI for intelligent scenario-based monitoring. It offers a secure and isolated environment for each facility, with capabilities for remote management, health monitoring, and a voice-first mobile companion app for residents. The project aims to provide peace of mind for residents and caregivers by leveraging advanced AI and IoT technologies to create a responsive and intuitive safety net.
+An AI-powered senior care companion platform — daily check-ins, family alerts, and care facility management in one app.
 
-## User Preferences
-- API key-based Gemini integration (not managed AI Integrations)
-- Multi-tenant file-based data isolation alongside database
+## Run & Operate
 
-## System Architecture
-The system employs a multi-tenant architecture with data isolation at both the database level (PostgreSQL with `entityId` foreign keys) and the file system level (`/data/entities/[id]/` folders). The backend is built with Express.js, providing a robust API layer and WebSocket support for real-time communication. The frontend utilizes React, Vite, shadcn/ui, and Tailwind CSS for a responsive and modern user interface.
+- `pnpm --filter @workspace/heygrand run dev` — run the frontend (port assigned by workflow)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `pnpm run typecheck` — full typecheck across all packages
+- `pnpm run build` — typecheck + build all packages
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- Required env: `DATABASE_URL` — Postgres connection string
 
-**Key Architectural Components:**
-- **Dual-Hardware Architecture:** Supports both ADT motion sensors integrated with Google Home (`adt_google`) and custom ESP32-S3-BOX-3 units with HLK-LD2410 mmWave sensors (`esp32_custom`).
-- **Bidirectional Device Customization Pipeline:** Per-unit `device_settings` table (sensitivity, detection distance, AI check-in frequency, active hours window) is editable from the Resident Web App at `/resident/device-settings`. Device-facing endpoint `GET /api/devices/:mac/config` returns the JSON config with an HMAC-SHA256 `X-Signature` header (secret: `DEVICE_HMAC_SECRET`) for end-to-end integrity. Saving from the resident UI also pushes a `CONFIG_UPDATE` message over the existing ESP32 WebSocket so devices re-fetch and apply settings instantly without a re-flash. The same WS now also accepts `SENSOR_DATA`, `DEVICE_STATUS`, and `DIAGNOSTIC_RESPONSE` messages from the new firmware. Reference C++ firmware lives in `firmware/esp32-s3-box-3/` (PlatformIO).
-- **AI Engine:** Leverages Google Gemini 1.5 Flash for scenario-based inactivity detection, personalized check-ins, mood analysis, and conversational AI. It supports entity-specific API keys and lazy initialization.
-- **Smart Speaker Integration:** A `speaker-gateway` service handles pushing AI-generated audio check-ins to Google Home speakers, activates listen mode for voice responses, and respects quiet hours. ESP32 units use a dedicated WebSocket-based speaker service.
-- **Mobile Companion App:** A voice-first Expo React Native application provides residents with an AI companion chat, safety status, check-in alerts, and community announcements. It features PIN login, streaming AI responses via SSE, and Gemini audio transcription.
-- **Three-Tier Multi-Tenant SaaS Architecture:**
-  - **Level 1 (Super Admin):** `/super-admin/*` routes with TOTP 2FA, facility registry, remote health checks. Auth stored in `sa_token`/`sa_admin` localStorage keys.
-  - **Level 2 (Company Admin):** `/login` auth gate with `CompanyAuthGuard`. JWT stored as `co_token`/`co_user` in localStorage. `useCompanyAuth` hook provides `getEntityId()`, `setSession()`, `logout()`. All entity-scoped API queries use dynamic entityId. Sidebar shows user name, role, and logout button. User Management page (`/user-management`) visible to admin role only.
-  - **Level 3 (Mobile/Resident):** PIN-based login via mobile token endpoints. Available on both the Expo React Native app and a parallel **Resident Web App** (under `/resident/*`) that mirrors mobile features (login, waiting, home, voice/text chat with SSE streaming, announcements). The web app uses the same `/api/mobile/*` endpoints, stores its JWT in `localStorage` under `hg_resident_token`/`hg_resident_profile`, captures voice via `MediaRecorder` (sent as base64 to `/api/mobile/respond-stream`), and reads responses aloud via the browser `SpeechSynthesis` API.
-- **Super-Admin Command Hub:** A centralized dashboard for managing multiple HeyGrand facility installations, including authentication with TOTP 2FA, facility registry, remote configuration push, health monitoring, and a remote diagnostic & maintenance tunnel.
-- **Remote Diagnostic & Maintenance Tunnel:** Provides HMAC-signed access for remote log retrieval, service restarts, cache clearing, and system diagnostics for individual facilities.
-- **Tenant Isolation & Security:** `tenantResolver` middleware ensures data isolation. Mobile authentication uses JWTs with PIN-based login, DB-backed token revocation, and HMAC-SHA256 for Super-Admin remote commands.
-- **Data Storage:** PostgreSQL (Neon-backed via Drizzle ORM) for structured data, and file-based storage for tenant-specific profiles, conversations, and activity logs.
-- **UI/UX:** The administrative dashboards (Nexus and Super-Admin) feature intuitive UIs for resident monitoring, unit management, health maps, log streams, and recovery script execution. The mobile app prioritizes accessibility with large-text PIN entry and visual state indicators.
+## Stack
 
-## External Dependencies
-- **Database:** PostgreSQL (via Drizzle ORM)
-- **AI:** Google Gemini 1.5 Flash (@google/genai)
-- **Hardware Integration:**
-    - ADT (for motion sensor webhooks)
-    - Google Home (for smart speaker integration and audio output)
-    - ESP32-S3-BOX-3 with HLK-LD2410 mmWave sensors (for custom sensor and speaker functionality)
-- **Authentication:** `bcryptjs`, `jsonwebtoken`, `otplib` (for TOTP 2FA)
-- **Mobile Development:** Expo (expo-router, expo-secure-store, expo-av, expo-speech)
-- **Email:** Nodemailer (SMTP-based, falls back to console logging)
+- pnpm workspaces, Node.js 24, TypeScript 5.9
+- Frontend: React + Vite + Tailwind CSS v3 + wouter (routing) + TanStack Query
+- API: Express 5, HTTP server with WebSocket support
+- DB: PostgreSQL + Drizzle ORM (schema at `lib/db/src/schema/schema.ts`)
+- Auth: Custom JWT-based company auth, super-admin auth, mobile auth
+- Real-time: WebSocket server (`ws` package), SSE streaming, speaker gateway
+- Payments: Stripe via `stripe-replit-sync`
+- AI: `@google/genai` for AI check-in generation
+- Build: esbuild (CJS bundle for server)
 
-## SaaS Self-Registration & Subscription Lifecycle
+## Where things live
 
-### Registration Flow
-1. Facility admin visits `/register` → fills out facility name, contact name, email, password, phone (optional)
-2. System creates facility record in `pending_verification` state, sends verification email
-3. Admin clicks link in email → `/verify-email?token=...` → system creates entity + admin user records, transitions to `trial`
-4. 30-day free trial begins (`trialEndsAt = now + 30 days`)
-5. Login page at `/login` includes a "Register your facility" link
+- `artifacts/heygrand/` — React/Vite frontend (previewPath: `/`)
+- `artifacts/api-server/` — Express server (previewPath: `/api`, port 8080)
+- `lib/db/src/schema/schema.ts` — Drizzle ORM schema (source of truth for DB)
+- `artifacts/api-server/src/routes.ts` — Main `registerRoutes()` function (WebSocket + all HTTP routes)
+- `artifacts/api-server/src/routes/` — Route sub-modules (auth, company, mobile, super-admin, iot, etc.)
+- `artifacts/api-server/src/middleware/` — Auth middleware (company, super-admin, tenant, VPC, maintenance)
+- `artifacts/api-server/src/services/` — Business logic (AI engine, chat, email, emergency, speaker, Stripe)
+- `artifacts/api-server/src/storage.ts` — Data access layer
+- `artifacts/heygrand/src/App.tsx` — Frontend routing (wouter)
+- `artifacts/heygrand/src/lib/queryClient.ts` — Custom React Query client
 
-### Subscription States (`subscriptionStatus`)
-- `pending_verification` — registered but email not yet verified
-- `trial` — email verified, 30-day free trial active
-- `active` — paid subscription (manually set by super admin or future Stripe integration)
-- `paused` — trial expired or subscription lapsed; login blocked with clear message
-- `cancelled` — cancelled by super admin; login blocked
+## Architecture decisions
 
-### Trial Lifecycle (Task #8)
-- **Trial scheduler** (`server/services/trial-scheduler.ts`): runs on server start and every 1 hour, queries facilities where `subscriptionStatus = trial AND trialEndsAt < NOW()` and transitions them to `paused`
-- **Login block**: `POST /api/company/auth/login` checks facility's `subscriptionStatus` via `getFacilityByLinkedEntityId(entityId)` and returns 403 with human-readable message for paused/cancelled states
-- **Super Admin controls** (`POST /api/super-admin/facilities/:id/subscription`): actions = approve (→active), extend-trial (+N days), pause, cancel, reactivate (→active)
+- **No OpenAPI codegen**: Complex existing API kept as-is with original fetch layer. Frontend uses custom `queryClient.ts` rather than generated hooks.
+- **registerRoutes pattern preserved**: The server's `registerRoutes(httpServer, app)` handles WebSocket setup, all route registration, and complex middleware chains — not refactored to Express Router pattern.
+- **`logger-util.ts` breaks circular dep**: The `log()` utility was extracted from `index.ts` to `logger-util.ts` to allow route files to import it without circular dependencies.
+- **DB owned by @workspace/db lib**: The schema lives in `lib/db/src/schema/`, shared as `@workspace/db`. Server's `db.ts` has its own pool but uses the same schema.
+- **Tailwind v3 frontend**: Uses postcss + tailwindcss v3 (not @tailwindcss/vite plugin).
 
-### Super Admin Dashboard Updates
-- Stats bar now shows 6 cards: Total, Pending Email, On Trial, Active, Residents, Issues
-- New "Registrations" panel tab (default active) with badge showing pending+trial count
-- Registrations panel: two tables — "Awaiting Email Verification" and "Active Trials" with action buttons (Activate, +30d, Pause)
+## Product
 
-### Email Service (`server/services/email-service.ts`)
-- SMTP env vars: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `APP_URL`
-- Without SMTP config, emails are logged to console (dev mode)
-- Sends: verification email, welcome+credentials email (on verification), super admin notification
+HeyGrand is a senior care platform with three user types:
+- **Seniors**: Receive warm AI-powered daily check-ins via a companion device
+- **Families**: Get daily summaries, instant alerts, and monitoring for their loved ones
+- **Facilities**: Manage residents, units, sensors, emergency protocols, and billing
 
-### Database Migration Strategy
-This project uses `drizzle-kit push` (not migration files) for schema changes. All schema changes are automatically synchronized to the database by running `npm run db:push`. The facilities table schema with `subscriptionStatus` enum and all new fields has been verified in sync (`No changes detected`).
+## User preferences
 
-### Storage Methods Added
-- `getFacilityByContactEmail(email)` — uniqueness check on registration
-- `getFacilityByVerificationToken(token)` — email verification lookup
-- `getFacilityByLinkedEntityId(entityId)` — subscription status check on login
-- `getExpiredTrialFacilities()` — scheduler query for expired trials
+_Populate as you build — explicit user instructions worth remembering across sessions._
 
-### Family First-Run Onboarding
-- After a family account (entity `type === "family"`) logs in with **zero residents**, `FamilyOnboardingGate` (in `client/src/App.tsx`, wraps `AdminRouter` inside `AppLayout`) redirects them to `/welcome`.
-- `/welcome` (`client/src/pages/family-onboarding.tsx`) is a company-authed, sidebar-free wizard with jargon-free copy: Welcome → loved one's profile (pre-filled from `entity.name`, the loved one's name captured at sign-up) → check-in setup (frequency presets + awake-hours + optional device pairing code) → done.
-- The wizard calls existing endpoints: `POST /api/entities/:id/residents`, `POST /api/entities/:id/units`, `POST .../units/:unitId/assign-resident`, and the new company-side `PUT /api/entities/:id/units/:unitId/device-settings` (also `GET`) which upserts `device_settings` and pushes `CONFIG_UPDATE` to the ESP32 if a MAC is bound. Once a resident exists, the gate stops redirecting so families reach the normal dashboard.
+## Gotchas
+
+- `log` function imported via `logger-util.ts` (NOT `index.ts`) — avoids circular deps
+- `zod/v4` subpath works with zod@3.25.x (compatibility layer)
+- API server port is 8080 (not 5000 as noted in old template)
+- Frontend previewPath is `/` — WouterRouter base uses `import.meta.env.BASE_URL.replace(/\/$/, "")`
+- WebSocket path `/ws` — listed in routes, required for multi-tenant isolation
+- `attached_assets/` is outside artifact root — `server.fs.strict: false` in vite config
+- Super-admin 2FA is mandatory — see `.agents/memory/super-admin-2fa-enforcement.md`
+
+## Pointers
+
+- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

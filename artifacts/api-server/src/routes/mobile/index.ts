@@ -1,0 +1,824 @@
+import { Router } from "express";
+import { storage } from "../../storage";
+import bcrypt from "bcryptjs";
+import { mobileAuthMiddleware, signMobileToken } from "../../middleware/mobile-auth";
+import { mobileLoginSchema, insertUserPreferencesSchema } from "@workspace/db";
+import { emergencyService } from "../../services/emergency-service";
+import { generateCompanionReply, runMonitorAgent, streamCompanionResponse, transcribeAudio, buildConversationContext, generateOnboardingResponse, generateIntakeResponse, invalidatePersonaCache, type MonitorVerdict } from "../../ai-engine";
+import type { OnboardingProfile } from "@workspace/db";
+import { broadcastToClients } from "../../ws-broadcast";
+import { log } from "../../logger-util";
+import { dailyLogger } from "../../daily-logger";
+
+const router = Router();
+
+/**
+ * Persists the Monitor agent's verdict as an observation and applies it to the
+ * resident's safety state: resolving/escalating the active scenario, updating
+ * resident status, and creating staff alerts. Mirrors the previous safety
+ * behavior but is now driven by the silent Monitor agent.
+ */
+async function applyMonitorVerdict(opts: {
+  verdict: MonitorVerdict;
+  resident: { id: number; entityId: number; preferredName: string | null; firstName: string };
+  conversationId: number;
+  message: string;
+  activeScenario?: { id: number } | null;
+  via: string;
+}): Promise<void> {
+  const { verdict, resident, conversationId, message, activeScenario, via } = opts;
+  const residentName = resident.preferredName || resident.firstName;
+
+  try {
+    await storage.createMonitoringObservation({
+      entityId: resident.entityId,
+      residentId: resident.id,
+      conversationId,
+      safe: verdict.safe,
+      needsHelp: verdict.needsHelp,
+      riskLevel: verdict.riskLevel,
+      mood: verdict.mood,
+      moodScore: verdict.moodScore,
+      summary: verdict.summary,
+      raw: verdict as any,
+    });
+  } catch (err) {
+    log(`Failed to persist monitor observation: ${err}`, "mobile-api");
+  }
+
+  const isResolved = verdict.safe && !verdict.needsHelp;
+  // "Red" safety level: the Monitor flagged an emergency. This MUST raise a staff
+  // alert and push it in real time even when NO inactivity scenario is currently
+  // open — e.g. a resident who proactively says "I fell down" mid-conversation.
+  // Gating emission on `activeScenario` previously dropped exactly this case.
+  const isEmergency = verdict.needsHelp || verdict.riskLevel === "high";
+
+  if (isEmergency) {
+    // Escalate an open scenario if one exists, but NEVER gate alerting on it.
+    if (activeScenario) {
+      await storage.updateActiveScenario(activeScenario.id, { status: "staff_alerted" } as any);
+    }
+    const alertReason = verdict.summary?.trim()
+      ? verdict.summary.trim()
+      : `Resident indicated they may need assistance${via ? ` via ${via}` : ""}.`;
+    const alert = await storage.createAlert({
+      entityId: resident.entityId,
+      residentId: resident.id,
+      scenarioId: activeScenario?.id ?? null,
+      severity: "critical",
+      title: `${residentName} needs help`,
+      message: `${alertReason} Last message: "${message}"`,
+    });
+    await storage.updateResidentStatus(resident.id, "alert", new Date());
+
+    // Real-time push to the staff dashboard, scoped to this tenant via entityId
+    // so other facilities' dashboards ignore it (multi-tenant isolation).
+    broadcastToClients({
+      type: "alert",
+      entityId: resident.entityId,
+      data: {
+        alertId: alert.id,
+        residentId: resident.id,
+        residentName,
+        severity: "critical",
+        riskLevel: verdict.riskLevel,
+        summary: verdict.summary,
+        scenarioId: activeScenario?.id ?? null,
+      },
+    });
+  } else if (isResolved && activeScenario) {
+    await storage.resolveActiveScenario(activeScenario.id, "resident_response");
+    await storage.updateResidentStatus(resident.id, "safe", new Date());
+    broadcastToClients({
+      type: "scenario_resolved",
+      entityId: resident.entityId,
+      data: { id: activeScenario.id, residentId: resident.id },
+    });
+  }
+}
+
+/**
+ * Runs one turn of the Onboarding Intake Agent for a resident whose onboarding
+ * is not yet 'completed'. This BYPASSES the Dual-Agent (Companion + Monitor)
+ * flow entirely: no safety monitoring, no companion persona — just the warm
+ * intake specialist gathering the resident's profile one question at a time.
+ * Persists the merged profile and flips onboardingStatus to in_progress /
+ * completed, then saves the assistant reply to the conversation.
+ */
+async function runIntakeTurn(opts: {
+  resident: { id: number; entityId: number; preferredName: string | null; firstName: string; onboardingProfile: unknown };
+  conversationId: number;
+  userMessage: string;
+  history: { role: string; content: string }[];
+}): Promise<{ aiResponse: string; isComplete: boolean }> {
+  const { resident, conversationId, userMessage, history } = opts;
+  const currentProfile = (resident.onboardingProfile as OnboardingProfile | null) || {};
+
+  const result = await generateIntakeResponse(
+    resident as any,
+    userMessage,
+    history,
+    currentProfile
+  );
+
+  await storage.updateResidentOnboarding(resident.id, {
+    onboardingStatus: result.isComplete ? "completed" : "in_progress",
+    onboardingProfile: result.profile,
+  });
+
+  // When intake finishes, drop any cached companion persona so the very next
+  // daily chat is built fresh from the newly-saved onboarding_profile.
+  if (result.isComplete) {
+    invalidatePersonaCache(resident.id);
+  }
+
+  await storage.createMessage({ conversationId, role: "assistant", content: result.aiResponse });
+
+  dailyLogger.info("mobile-api", `Intake turn for resident ${resident.id}`, {
+    residentId: resident.id,
+    isComplete: result.isComplete,
+  });
+
+  return { aiResponse: result.aiResponse, isComplete: result.isComplete };
+}
+
+/**
+ * POST /api/mobile/respond
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId from JWT; body residentId must match JWT claim.
+ * Processes a resident's text message through the AI companion.
+ */
+router.post("/respond", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileUser!;
+    const { conversationId, message } = req.body;
+
+    if (!conversationId || !message) {
+      return res.status(400).json({ error: "Missing conversationId or message" });
+    }
+
+    const bodyResidentId = Number(req.body.residentId);
+    if (bodyResidentId && bodyResidentId !== jwtResidentId) {
+      return res.status(403).json({ error: "residentId does not match authenticated token" });
+    }
+
+    const resident = await storage.getResident(jwtResidentId);
+    if (!resident) return res.status(404).json({ error: "Resident not found" });
+    if (resident.entityId !== jwtEntityId) return res.status(403).json({ error: "Access denied" });
+
+    const conv = await storage.getConversation(Number(conversationId));
+    if (!conv || conv.residentId !== jwtResidentId) {
+      return res.status(403).json({ error: "Conversation not found or access denied" });
+    }
+
+    await storage.createMessage({ conversationId: conv.id, role: "user", content: message });
+
+    const pendingCheckIns = emergencyService.getPendingCheckIns();
+    for (const pending of pendingCheckIns) {
+      if (pending.residentId === jwtResidentId) {
+        emergencyService.clearPendingCheckIn(pending.alertId);
+        dailyLogger.info("mobile-api", `Cleared pending check-in (alert ${pending.alertId}) for resident ${jwtResidentId} due to response`);
+      }
+    }
+
+    const allMessages = await storage.getMessages(conv.id);
+    const history = allMessages.map(m => ({ role: m.role, content: m.content }));
+
+    // Onboarding bypass: while the resident's onboarding is not yet completed,
+    // route the message to the specialized Intake Agent instead of the
+    // Dual-Agent (Companion + Monitor) flow.
+    if (resident.onboardingStatus !== "completed") {
+      const intake = await runIntakeTurn({
+        resident,
+        conversationId: conv.id,
+        userMessage: message,
+        history: history.slice(0, -1),
+      });
+      return res.json({
+        response: intake.aiResponse,
+        isResolved: true,
+        conversationId: conv.id,
+        onboarding: true,
+        onboardingComplete: intake.isComplete,
+      });
+    }
+
+    const activeScens = await storage.getActiveScenariosForResident(jwtResidentId);
+    const activeScenario = activeScens.find(s => s.id === Number(req.body.scenarioId)) || activeScens[0];
+
+    // Dual-Agent: kick off the silent Monitor immediately, but never let it
+    // block delivery of the Companion's reply to the resident.
+    const monitorPromise = runMonitorAgent(resident, message, history);
+
+    const aiResponse = await generateCompanionReply(resident, message, history);
+    await storage.createMessage({ conversationId: conv.id, role: "assistant", content: aiResponse });
+
+    // Respond to the resident right away; the Monitor verdict (alerts, scenario
+    // resolution, persisted observation) is applied asynchronously afterwards.
+    res.json({ response: aiResponse, isResolved: true, conversationId: conv.id });
+
+    void monitorPromise
+      .then((verdict) =>
+        applyMonitorVerdict({
+          verdict,
+          resident,
+          conversationId: conv.id,
+          message,
+          activeScenario,
+          via: "",
+        })
+      )
+      .catch((err) => log(`Monitor processing failed (respond): ${err}`, "mobile-api"));
+  } catch (error) {
+    log(`Mobile respond error: ${error}`, "mobile-api");
+    res.status(500).json({ error: "Failed to process response" });
+  }
+});
+
+/**
+ * POST /api/mobile/respond-stream
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId from JWT; body residentId must match JWT claim.
+ * Streams the AI companion response as server-sent events.
+ */
+router.post("/respond-stream", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileUser!;
+    const { conversationId, message, audioBase64, audioMimeType } = req.body;
+
+    if (!conversationId) {
+      return res.status(400).json({ error: "Missing conversationId" });
+    }
+
+    const bodyResidentId = Number(req.body.residentId);
+    if (bodyResidentId && bodyResidentId !== jwtResidentId) {
+      return res.status(403).json({ error: "residentId does not match authenticated token" });
+    }
+
+    let userMessage = message;
+
+    if (audioBase64 && !userMessage) {
+      try {
+        const resident = await storage.getResident(jwtResidentId);
+        userMessage = await transcribeAudio(audioBase64, audioMimeType || "audio/m4a", resident?.entityId);
+      } catch (err) {
+        return res.status(400).json({ error: "Could not understand audio. Please try again." });
+      }
+    }
+
+    if (!userMessage) {
+      return res.status(400).json({ error: "No message or audio provided" });
+    }
+
+    const resident = await storage.getResident(jwtResidentId);
+    if (!resident) return res.status(404).json({ error: "Resident not found" });
+    if (resident.entityId !== jwtEntityId) return res.status(403).json({ error: "Access denied" });
+
+    const conv = await storage.getConversation(Number(conversationId));
+    if (!conv || conv.residentId !== jwtResidentId) {
+      return res.status(403).json({ error: "Conversation not found or access denied" });
+    }
+
+    await storage.createMessage({ conversationId: conv.id, role: "user", content: userMessage });
+
+    const pendingCheckIns = emergencyService.getPendingCheckIns();
+    for (const pending of pendingCheckIns) {
+      if (pending.residentId === jwtResidentId) {
+        emergencyService.clearPendingCheckIn(pending.alertId);
+        dailyLogger.info("mobile-api", `Cleared pending check-in (alert ${pending.alertId}) for resident ${jwtResidentId} due to voice response`);
+      }
+    }
+
+    const allMessages = await storage.getMessages(conv.id);
+    const rawHistory = allMessages.map(m => ({ role: m.role, content: m.content }));
+    const history = buildConversationContext(rawHistory);
+
+    const activeScens = await storage.getActiveScenariosForResident(jwtResidentId);
+    const activeScenario = activeScens.find(s => s.id === Number(req.body.scenarioId)) || activeScens[0];
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    res.write(`data: ${JSON.stringify({ type: "transcription", text: userMessage })}\n\n`);
+
+    // Onboarding bypass: while onboarding is not yet completed, route to the
+    // Intake Agent instead of the Dual-Agent. The intake reply is generated as a
+    // whole (not token-streamed), so it is emitted as a single chunk.
+    if (resident.onboardingStatus !== "completed") {
+      const intake = await runIntakeTurn({
+        resident,
+        conversationId: conv.id,
+        userMessage,
+        history: rawHistory.slice(0, -1),
+      });
+      res.write(`data: ${JSON.stringify({ type: "chunk", text: intake.aiResponse })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "done", isResolved: true, conversationId: conv.id, onboarding: true, onboardingComplete: intake.isComplete })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // Dual-Agent: the silent Monitor runs in parallel so it never blocks the
+    // Companion's streamed reply to the resident.
+    const monitorPromise = runMonitorAgent(resident, userMessage, history);
+
+    const result = await streamCompanionResponse(
+      resident,
+      userMessage,
+      history,
+      (chunk) => {
+        res.write(`data: ${JSON.stringify({ type: "chunk", text: chunk })}\n\n`);
+      }
+    );
+
+    await storage.createMessage({ conversationId: conv.id, role: "assistant", content: result.fullResponse });
+
+    const verdict = await monitorPromise;
+    const isResolved = verdict.safe && !verdict.needsHelp && verdict.riskLevel !== "high";
+
+    await applyMonitorVerdict({
+      verdict,
+      resident,
+      conversationId: conv.id,
+      message: userMessage,
+      activeScenario,
+      via: "voice",
+    });
+
+    res.write(`data: ${JSON.stringify({ type: "done", isResolved, conversationId: conv.id })}\n\n`);
+    res.end();
+  } catch (error) {
+    log(`Mobile stream respond error: ${error}`, "mobile-api");
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to process response" });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: "error", message: "Something went wrong" })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+/**
+ * GET /api/mobile/resident/:id/status
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: :id must match the residentId in the JWT — residents can only query their own status.
+ */
+router.get("/resident/:id/status", mobileAuthMiddleware, async (req, res) => {
+  const { residentId: jwtResidentId, entityId: jwtEntityId } = req.mobileUser!;
+  const requestedId = Number(req.params.id);
+
+  if (requestedId !== jwtResidentId) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  const resident = await storage.getResident(jwtResidentId);
+  if (!resident || resident.entityId !== jwtEntityId) {
+    return res.status(404).json({ error: "Resident not found" });
+  }
+
+  const activeScens = await storage.getActiveScenariosForResident(resident.id);
+  const convs = await storage.getConversations(resident.id);
+  const activeConv = convs.find(c => c.isActive);
+
+  res.json({
+    status: resident.status,
+    activeScenario: activeScens[0] || null,
+    activeConversation: activeConv || null,
+    name: resident.preferredName || resident.firstName,
+  });
+});
+
+/**
+ * POST /api/mobile/login
+ * Auth: none (public — issues a mobile JWT on successful PIN verification)
+ * Validates entityId, anonymous username, and PIN. Returns a 30-day JWT token.
+ */
+router.post("/login", async (req, res) => {
+  try {
+    const parsed = mobileLoginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid login data", details: parsed.error.flatten() });
+    }
+
+    const { anonymousUsername, pin, entityId } = parsed.data;
+
+    const resident = await storage.getResidentByAnonymousUsername(entityId, anonymousUsername);
+    if (!resident) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    if (!resident.mobilePin) {
+      const hashedPin = await bcrypt.hash(pin, 10);
+      await storage.updateResident(resident.id, { mobilePin: hashedPin } as any);
+    } else {
+      const pinValid = await bcrypt.compare(pin, resident.mobilePin);
+      if (!pinValid) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+    }
+
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const placeholderToken = `pending-${Date.now()}`;
+    const dbToken = await storage.createMobileToken({
+      residentId: resident.id,
+      entityId,
+      token: placeholderToken,
+      isActive: true,
+      expiresAt,
+    });
+
+    const tokenPayload = { residentId: resident.id, entityId, tokenId: dbToken.id };
+    const jwtToken = signMobileToken(tokenPayload, "30d");
+
+    await storage.updateMobileTokenValue(dbToken.id, jwtToken);
+
+    let unitData: { id: number; unitIdentifier: string; label: string | null; floor: string | null } | null = null;
+    if (resident.unitId) {
+      const unit = await storage.getUnit(resident.unitId);
+      if (unit && unit.entityId === entityId) {
+        unitData = {
+          id: unit.id,
+          unitIdentifier: unit.unitIdentifier,
+          label: unit.label,
+          floor: unit.floor,
+        };
+      }
+    }
+
+    log(`Mobile login: ${resident.anonymousUsername} (entity ${entityId})`, "mobile");
+    dailyLogger.info("mobile", `Resident ${resident.anonymousUsername} logged in via mobile`, { entityId, unitAssigned: !!unitData });
+
+    res.json({
+      token: jwtToken,
+      expiresAt: expiresAt.toISOString(),
+      isUnitAssigned: !!unitData,
+      unit: unitData,
+      resident: {
+        id: resident.id,
+        anonymousUsername: resident.anonymousUsername,
+        preferredName: resident.preferredName || resident.firstName,
+        entityId: resident.entityId,
+        status: resident.status,
+        unitId: resident.unitId || null,
+      },
+    });
+  } catch (error: any) {
+    log(`Mobile login error: ${error?.stack || error}`, "mobile");
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+/**
+ * POST /api/mobile/logout
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Revokes the current mobile token in the database.
+ */
+router.post("/logout", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const token = req.headers.authorization!.slice(7);
+    const dbToken = await storage.getMobileTokenByToken(token);
+    if (dbToken) {
+      await storage.deactivateMobileToken(dbToken.id);
+    }
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: "Logout failed" });
+  }
+});
+
+/**
+ * GET /api/mobile/sync/:entityId/:userId
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: entityId and userId in URL must match JWT claims exactly.
+ * Returns resident data, last AI message, safety status, and announcements.
+ */
+router.get("/sync/:entityId/:userId", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const entityId = parseInt(req.params.entityId as string);
+    const userId = parseInt(req.params.userId as string);
+
+    if (req.mobileUser!.residentId !== userId || req.mobileUser!.entityId !== entityId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const resident = await storage.getResident(userId);
+    if (!resident || resident.entityId !== entityId) {
+      return res.status(404).json({ error: "Resident not found" });
+    }
+
+    const recentMessages = await storage.getLatestConversationMessages(userId, 1);
+    const lastAIMessage = recentMessages.find(m => m.role === "assistant") || null;
+    const broadcasts = await storage.getCommunityBroadcasts(entityId, 5);
+    const activeScenarios = await storage.getActiveScenariosForResident(userId);
+
+    res.json({
+      syncedAt: new Date().toISOString(),
+      resident: {
+        id: resident.id,
+        anonymousUsername: resident.anonymousUsername,
+        preferredName: resident.preferredName || resident.firstName,
+        status: resident.status,
+        lastActivityAt: resident.lastActivityAt,
+      },
+      lastAIMessage: lastAIMessage ? { id: lastAIMessage.id, content: lastAIMessage.content, createdAt: lastAIMessage.createdAt } : null,
+      safetyStatus: {
+        current: resident.status,
+        activeScenarios: activeScenarios.length,
+        hasActiveAlert: activeScenarios.some(s => s.status === "active" || s.status === "escalated"),
+      },
+      announcements: broadcasts.map(b => ({ id: b.id, senderName: b.senderName, message: b.message, createdAt: b.createdAt })),
+    });
+  } catch (error: any) {
+    log(`Mobile sync error: ${error?.stack || error}`, "mobile");
+    res.status(500).json({ error: "Sync failed" });
+  }
+});
+
+/**
+ * GET /api/mobile/me
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: all data scoped to the residentId and entityId from the JWT.
+ * Returns the authenticated resident's full profile, unit info, sensor pairing status,
+ * and preferences — useful for the mobile app's home/bootstrap screen.
+ */
+router.get("/me", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId, entityId } = req.mobileUser!;
+
+    const resident = await storage.getResident(residentId);
+    if (!resident || resident.entityId !== entityId) {
+      return res.status(404).json({ error: "Resident not found" });
+    }
+
+    let unit: { id: number; unitIdentifier: string; label: string | null; floor: string | null; hardwareType: string; smartSpeakerId: string | null; esp32DeviceMac: string | null } | null = null;
+    let sensors: { id: number; sensorType: string; location: string; isActive: boolean }[] = [];
+    let isPaired = false;
+
+    if (resident.unitId) {
+      const unitData = await storage.getUnit(resident.unitId);
+      if (unitData && unitData.entityId === entityId) {
+        unit = {
+          id: unitData.id,
+          unitIdentifier: unitData.unitIdentifier,
+          label: unitData.label,
+          floor: unitData.floor,
+          hardwareType: unitData.hardwareType,
+          smartSpeakerId: unitData.smartSpeakerId,
+          esp32DeviceMac: unitData.esp32DeviceMac,
+        };
+        isPaired = true;
+        const unitSensors = await storage.getSensorsByUnit(unitData.id);
+        sensors = unitSensors.map(s => ({
+          id: s.id,
+          sensorType: s.sensorType,
+          location: s.location,
+          isActive: s.isActive,
+        }));
+      }
+    }
+
+    const preferences = await storage.getUserPreferences(residentId);
+
+    res.json({
+      resident: {
+        id: resident.id,
+        anonymousUsername: resident.anonymousUsername,
+        preferredName: resident.preferredName || resident.firstName,
+        firstName: resident.firstName,
+        lastName: resident.lastName,
+        roomNumber: resident.roomNumber,
+        status: resident.status,
+        entityId: resident.entityId,
+        lastActivityAt: resident.lastActivityAt,
+      },
+      unit,
+      isPaired,
+      sensors,
+      preferences: preferences || {
+        aiVerbosity: "medium",
+        quietHoursStart: null,
+        quietHoursEnd: null,
+        preferredVoiceTone: "nurturing",
+      },
+    });
+  } catch (error: any) {
+    log(`Mobile /me error: ${error}`, "mobile-api");
+    res.status(500).json({ error: "Failed to load profile" });
+  }
+});
+
+/**
+ * GET /api/mobile/profile
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId from JWT.
+ * Returns basic resident profile. Use GET /me for full profile with unit and preferences.
+ */
+router.get("/profile", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId, entityId } = req.mobileUser!;
+    const resident = await storage.getResident(residentId);
+    if (!resident || resident.entityId !== entityId) {
+      return res.status(404).json({ error: "Resident not found" });
+    }
+    res.json({
+      id: resident.id,
+      anonymousUsername: resident.anonymousUsername,
+      preferredName: resident.preferredName || resident.firstName,
+      roomNumber: resident.roomNumber,
+      status: resident.status,
+      entityId: resident.entityId,
+      lastActivityAt: resident.lastActivityAt,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: "Failed to load profile" });
+  }
+});
+
+/**
+ * POST /api/mobile/conversation
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId and entityId from JWT; resident's entityId verified against JWT.
+ * Returns existing active conversation or creates a new one.
+ */
+router.post("/conversation", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId, entityId } = req.mobileUser!;
+    const resident = await storage.getResident(residentId);
+    if (!resident || resident.entityId !== entityId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const existing = await storage.getConversations(residentId);
+    const activeConv = existing.find(c => c.isActive && !c.scenarioId);
+    if (activeConv) {
+      return res.json(activeConv);
+    }
+
+    const conversation = await storage.createConversation({
+      entityId,
+      residentId,
+      title: `Companion Chat - ${new Date().toLocaleString()}`,
+      isActive: true,
+    });
+    res.json(conversation);
+  } catch (error) {
+    log(`Mobile create conversation error: ${error}`, "mobile");
+    res.status(500).json({ error: "Failed to create conversation" });
+  }
+});
+
+/**
+ * GET /api/mobile/preferences
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId from JWT.
+ */
+router.get("/preferences", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId } = req.mobileUser!;
+    const prefs = await storage.getUserPreferences(residentId);
+    if (!prefs) {
+      return res.json({
+        residentId,
+        aiVerbosity: "medium",
+        quietHoursStart: null,
+        quietHoursEnd: null,
+        preferredVoiceTone: "nurturing",
+      });
+    }
+    res.json(prefs);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch preferences" });
+  }
+});
+
+/**
+ * POST /api/mobile/preferences
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId and entityId from JWT — body values are ignored in favor of JWT claims.
+ */
+router.post("/preferences", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId, entityId } = req.mobileUser!;
+    const { aiVerbosity, quietHoursStart, quietHoursEnd, preferredVoiceTone } = req.body;
+
+    const parsed = insertUserPreferencesSchema.parse({
+      residentId,
+      entityId,
+      aiVerbosity: aiVerbosity || "medium",
+      quietHoursStart: quietHoursStart || null,
+      quietHoursEnd: quietHoursEnd || null,
+      preferredVoiceTone: preferredVoiceTone || "nurturing",
+    });
+
+    const prefs = await storage.upsertUserPreferences(parsed);
+    dailyLogger.info("mobile", `Preferences updated for resident ${residentId}`, { residentId, entityId });
+    res.json(prefs);
+  } catch (error: any) {
+    if (error.name === "ZodError") return res.status(400).json({ error: error.errors });
+    res.status(500).json({ error: "Failed to save preferences" });
+  }
+});
+
+/**
+ * GET /api/mobile/onboarding
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId and entityId from JWT.
+ * Checks whether the resident's Memory table is empty.
+ * If empty, returns the AI "Grandchild" persona's warm opening greeting.
+ * If memories already exist, returns their covered topics and completion state.
+ */
+router.get("/onboarding", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId, entityId } = req.mobileUser!;
+
+    const resident = await storage.getResident(residentId);
+    if (!resident || resident.entityId !== entityId) {
+      return res.status(404).json({ error: "Resident not found" });
+    }
+
+    const existingMemories = await storage.getMemoriesByResident(residentId);
+    const coveredTopics = [...new Set(existingMemories.map(m => m.topic))];
+    const isComplete = coveredTopics.length >= 8;
+
+    const result = await generateOnboardingResponse(resident, null, [], coveredTopics);
+
+    res.json({
+      isFirstTime: existingMemories.length === 0,
+      isComplete,
+      coveredTopics,
+      memoriesCount: existingMemories.length,
+      greeting: result.aiResponse,
+    });
+  } catch (error: any) {
+    log(`Onboarding GET error: ${error}`, "mobile-api");
+    res.status(500).json({ error: "Failed to load onboarding state" });
+  }
+});
+
+/**
+ * POST /api/mobile/onboarding
+ * Auth: mobileAuthMiddleware (resident JWT required)
+ * Tenant scope: residentId and entityId from JWT.
+ * Accepts the resident's conversational reply.
+ * Saves the response as a Memory entry and returns the next AI question.
+ * Body: { message: string, conversationHistory?: { role: string, content: string }[] }
+ */
+router.post("/onboarding", mobileAuthMiddleware, async (req, res) => {
+  try {
+    const { residentId, entityId } = req.mobileUser!;
+
+    const resident = await storage.getResident(residentId);
+    if (!resident || resident.entityId !== entityId) {
+      return res.status(404).json({ error: "Resident not found" });
+    }
+
+    const { message, conversationHistory = [] } = req.body;
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    const existingMemories = await storage.getMemoriesByResident(residentId);
+    const coveredTopics = [...new Set(existingMemories.map(m => m.topic))];
+
+    const result = await generateOnboardingResponse(
+      resident,
+      message.trim(),
+      conversationHistory,
+      coveredTopics
+    );
+
+    if (result.memorySummary && result.memoryTopic) {
+      await storage.createMemory({
+        residentId,
+        entityId,
+        topic: result.memoryTopic as any,
+        content: result.memorySummary,
+      });
+    }
+
+    const updatedMemories = await storage.getMemoriesByResident(residentId);
+    const updatedTopics = [...new Set(updatedMemories.map(m => m.topic))];
+
+    dailyLogger.info("mobile", `Onboarding memory saved for resident ${residentId}`, {
+      residentId,
+      topic: result.memoryTopic,
+      isComplete: result.isComplete,
+    });
+
+    res.json({
+      aiResponse: result.aiResponse,
+      memorySaved: !!(result.memorySummary && result.memoryTopic),
+      memoryTopic: result.memoryTopic,
+      isComplete: result.isComplete,
+      coveredTopics: updatedTopics,
+      memoriesCount: updatedMemories.length,
+    });
+  } catch (error: any) {
+    log(`Onboarding POST error: ${error}`, "mobile-api");
+    res.status(500).json({ error: "Failed to process onboarding message" });
+  }
+});
+
+export default router;
