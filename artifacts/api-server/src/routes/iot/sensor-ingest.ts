@@ -3,9 +3,24 @@ import { storage } from "../../storage";
 import { log } from "../../logger-util";
 import { dailyLogger } from "../../daily-logger";
 import { provisionEntityFolder, getEntityPath } from "../../tenant-folders";
+import { motionService } from "../../services/motion-service";
 import { z } from "zod/v4";
 import fs from "fs";
 import path from "path";
+
+// The ADT branch of this endpoint verifies inbound webhooks with an HMAC signature
+// keyed on ADT_WEBHOOK_SECRET. If the secret is not configured we refuse to start
+// (same fail-loud pattern as PORT in index.ts) rather than silently accept unsigned,
+// spoofable events that could write into any tenant's data. There is deliberately no
+// "allow when unset" bypass.
+if (!process.env.ADT_WEBHOOK_SECRET) {
+  throw new Error(
+    "ADT_WEBHOOK_SECRET is not configured. The /api/v1/sensor-ingest ADT branch requires it to " +
+      "verify inbound webhook signatures. Set ADT_WEBHOOK_SECRET (and configure the same value on " +
+      "the ADT sender) before starting the server. Refusing to start rather than expose an " +
+      "unauthenticated ingest endpoint.",
+  );
+}
 
 const router = Router();
 
@@ -100,6 +115,47 @@ async function checkAndFlagInactivity(
     `Inactivity flag set for resident ${residentId} (${minutesInactive} min inactive)`,
     { entityId, residentId }
   );
+}
+
+// ─── ADT rejection logging ─────────────────────────────────────────────────────
+/**
+ * Records a rejected ADT ingest request so operators can spot legitimate traffic being
+ * blocked (e.g. after a secret rotation) and roll back quickly. The secret/signature is
+ * never logged. Central-log writes are only attempted for post-signature-verification
+ * rejections (where `entityId` is trusted); pre-auth 401s go to the daily log only to
+ * avoid touching the DB with attacker-controlled input.
+ */
+async function logAdtRejection(
+  reason: string,
+  detail: {
+    hasSignature: boolean;
+    deviceId?: string;
+    claimedEntityId?: number;
+    claimedResidentId?: number;
+  },
+  toCentralLog: boolean
+): Promise<void> {
+  const message = `ADT sensor-ingest request rejected: ${reason}`;
+  dailyLogger.warn("sensor-ingest", message, { reason, ...detail });
+
+  if (toCentralLog && detail.claimedEntityId !== undefined) {
+    try {
+      await storage.createCentralLogEntry({
+        facilityId: detail.claimedEntityId,
+        severity: "warning",
+        source: "sensor-ingest",
+        message,
+        metadata: {
+          reason,
+          deviceId: detail.deviceId ?? null,
+          residentId: detail.claimedResidentId ?? null,
+          hasSignature: detail.hasSignature,
+        },
+      });
+    } catch (err) {
+      dailyLogger.warn("sensor-ingest", `Failed to write ADT rejection to central log: ${err}`);
+    }
+  }
 }
 
 // ─── Unified ingest endpoint ───────────────────────────────────────────────────
@@ -235,6 +291,27 @@ router.post("/", async (req, res) => {
 
     // ── ADT branch ──────────────────────────────────────────────────────────────
     if ("status" in body && (body.status === "alarm" || body.status === "stay")) {
+      // (1) The request must be provably from ADT. Verify the HMAC signature over the
+      // raw request body BEFORE any storage access (mirrors handleStripeWebhook: verify
+      // signature first, touch the database second).
+      const rawBody = (req as any).rawBody as Buffer | undefined;
+      const signature = req.headers["x-adt-signature"] as string | undefined;
+      const signedPayload = rawBody?.toString() ?? JSON.stringify(body);
+
+      if (!motionService.verifySignature(signedPayload, signature)) {
+        await logAdtRejection(
+          "invalid_signature",
+          {
+            hasSignature: !!signature,
+            deviceId: typeof body.deviceId === "string" ? body.deviceId : undefined,
+            claimedEntityId: typeof body.entityId === "number" ? body.entityId : undefined,
+            claimedResidentId: typeof body.residentId === "number" ? body.residentId : undefined,
+          },
+          false
+        );
+        return res.status(401).json({ branch: "adt", error: "Invalid or missing signature" });
+      }
+
       const parsed = adtIngestSchema.safeParse(body);
       if (!parsed.success) {
         return res.status(400).json({
@@ -253,11 +330,30 @@ router.post("/", async (req, res) => {
         timestamp,
       } = parsed.data;
 
+      // (2) Resolve entity/resident. A registered ADT device (matched by deviceId) is
+      // authoritative. The signed body may also supply entityId/residentId, but a body
+      // entityId that contradicts the device's registered entity is rejected.
       const sensor = deviceId ? await storage.getSensorByAdtId(deviceId) : undefined;
 
-      const entityId: number | undefined = bodyEntityId ?? sensor?.entityId;
-      const residentId: number | undefined =
-        bodyResidentId ?? (sensor?.residentId ?? undefined);
+      if (sensor && bodyEntityId !== undefined && sensor.entityId !== bodyEntityId) {
+        await logAdtRejection(
+          "device_entity_mismatch",
+          {
+            hasSignature: true,
+            deviceId,
+            claimedEntityId: bodyEntityId,
+            claimedResidentId: bodyResidentId,
+          },
+          true
+        );
+        return res.status(403).json({
+          branch: "adt",
+          error: "ADT device is registered to a different entity. Access denied.",
+        });
+      }
+
+      const entityId: number | undefined = sensor?.entityId ?? bodyEntityId;
+      const residentId: number | undefined = sensor?.residentId ?? bodyResidentId;
 
       if (!entityId) {
         return res.status(400).json({
@@ -267,6 +363,34 @@ router.post("/", async (req, res) => {
         });
       }
 
+      // (3) Cross-entity ownership: the resolved resident must belong to the claimed
+      // entity before anything is written (mirrors the ESP32 branch's mismatch guard).
+      if (residentId) {
+        const resident = await storage.getResident(residentId);
+        if (!resident) {
+          return res
+            .status(404)
+            .json({ branch: "adt", error: `Resident ${residentId} not found` });
+        }
+        if (resident.entityId !== entityId) {
+          await logAdtRejection(
+            "resident_entity_mismatch",
+            {
+              hasSignature: true,
+              deviceId,
+              claimedEntityId: entityId,
+              claimedResidentId: residentId,
+            },
+            true
+          );
+          return res.status(403).json({
+            branch: "adt",
+            error: "Resident does not belong to the claimed entity. Access denied.",
+          });
+        }
+      }
+
+      // (4) Verified and correctly scoped — safe to write.
       if (residentId) {
         const location = sensor?.location ?? zone ?? "unknown";
 
