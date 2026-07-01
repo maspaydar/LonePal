@@ -1,10 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
-
-const JWT_SECRET = process.env.SESSION_SECRET;
-if (!JWT_SECRET) {
-  console.error("FATAL: SESSION_SECRET environment variable is required for Super-Admin auth");
-}
+import { extractBearerToken, signJwt, verifyJwt } from "../lib/jwt";
 
 export interface SuperAdminJwtPayload {
   superAdminId: number;
@@ -20,41 +15,34 @@ declare global {
   }
 }
 
-function getSecret(): string {
-  if (!JWT_SECRET) throw new Error("SESSION_SECRET not configured");
-  return JWT_SECRET;
-}
-
 export function signSuperAdminToken(payload: SuperAdminJwtPayload): string {
-  return jwt.sign(payload, getSecret(), { expiresIn: "8h" });
+  return signJwt(payload, "8h");
 }
 
 export function signPending2FAToken(superAdminId: number, email: string): string {
-  return jwt.sign(
+  return signJwt(
     { superAdminId, email, twoFactorVerified: false, pending2FA: true },
-    getSecret(),
-    { expiresIn: "5m" }
+    "5m"
   );
 }
 
 export function superAdminAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  const token = extractBearerToken(req.headers.authorization);
+  if (!token) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
-  const token = authHeader.substring(7);
-
-  try {
-    const decoded = jwt.verify(token, getSecret()) as SuperAdminJwtPayload & { pending2FA?: boolean };
-
-    if (decoded.pending2FA || !decoded.twoFactorVerified) {
-      return res.status(403).json({ error: "Two-factor authentication required" });
-    }
-
-    req.superAdmin = decoded;
-    next();
-  } catch (err) {
+  const decoded = verifyJwt<SuperAdminJwtPayload & { pending2FA?: boolean }>(token);
+  if (!decoded) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
+
+  // 2FA is mandatory for every super-admin route, not just login: a token that
+  // has not completed 2FA (pending2FA) or lacks the verified flag is rejected.
+  if (decoded.pending2FA || !decoded.twoFactorVerified) {
+    return res.status(403).json({ error: "Two-factor authentication required" });
+  }
+
+  req.superAdmin = decoded;
+  next();
 }

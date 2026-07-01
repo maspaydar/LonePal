@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
 import { storage } from "../storage";
+import { extractBearerToken, signJwt, verifyJwt } from "../lib/jwt";
 
 const COMPANY_TOKEN_TYPE = "company" as const;
 const VALID_ROLES = new Set(["admin", "manager", "staff"]);
@@ -20,17 +20,11 @@ declare global {
   }
 }
 
-function getSecret(): string {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret) throw new Error("SESSION_SECRET not configured");
-  return secret;
-}
-
 export function signCompanyToken(
   payload: Omit<CompanyUserJwtPayload, "tokenType">,
-  expiresIn = "8h"
+  expiresIn: string | number = "8h"
 ): string {
-  return jwt.sign({ ...payload, tokenType: COMPANY_TOKEN_TYPE }, getSecret(), { expiresIn });
+  return signJwt({ ...payload, tokenType: COMPANY_TOKEN_TYPE }, expiresIn);
 }
 
 function isCompanyPayload(decoded: unknown): decoded is CompanyUserJwtPayload {
@@ -46,12 +40,8 @@ function isCompanyPayload(decoded: unknown): decoded is CompanyUserJwtPayload {
 }
 
 export function verifyCompanyToken(token: string): CompanyUserJwtPayload | null {
-  try {
-    const decoded = jwt.verify(token, getSecret());
-    return isCompanyPayload(decoded) ? decoded : null;
-  } catch {
-    return null;
-  }
+  const decoded = verifyJwt(token);
+  return decoded && isCompanyPayload(decoded) ? decoded : null;
 }
 
 function extractEntityIdFromPath(path: string): number | null {
@@ -60,12 +50,11 @@ function extractEntityIdFromPath(path: string): number | null {
 }
 
 export function requireCompanyAuth(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  const token = extractBearerToken(req.headers.authorization);
+  if (!token) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
-  const token = authHeader.substring(7);
   const payload = verifyCompanyToken(token);
 
   if (!payload) {
@@ -124,12 +113,11 @@ export function requireCompanyAuth(req: Request, res: Response, next: NextFuncti
 }
 
 export function requireCompanyAuthBasic(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  const token = extractBearerToken(req.headers.authorization);
+  if (!token) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
-  const token = authHeader.substring(7);
   const payload = verifyCompanyToken(token);
 
   if (!payload) {

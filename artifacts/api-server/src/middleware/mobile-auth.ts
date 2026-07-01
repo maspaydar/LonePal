@@ -1,8 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
 import { storage } from "../storage";
-
-const JWT_SECRET = process.env.SESSION_SECRET!;
+import { extractBearerToken, signJwt, verifyJwt } from "../lib/jwt";
 
 export interface MobileAuthPayload {
   residentId: number;
@@ -20,24 +18,19 @@ declare global {
 }
 
 export function signMobileToken(payload: MobileAuthPayload, expiresIn: string = "30d"): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn });
+  return signJwt(payload, expiresIn);
 }
 
 export function verifyMobileToken(token: string): MobileAuthPayload | null {
-  try {
-    return jwt.verify(token, JWT_SECRET) as MobileAuthPayload;
-  } catch {
-    return null;
-  }
+  return verifyJwt<MobileAuthPayload>(token);
 }
 
 export async function mobileAuthMiddleware(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  const token = extractBearerToken(req.headers.authorization);
+  if (!token) {
     return res.status(401).json({ error: "Missing or invalid authorization header" });
   }
 
-  const token = authHeader.slice(7);
   const payload = verifyMobileToken(token);
   if (!payload) {
     return res.status(401).json({ error: "Invalid or expired token" });
