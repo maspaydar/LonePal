@@ -41,7 +41,6 @@ export async function clearDemoData() {
   await db.execute(sql`DELETE FROM active_scenarios`);
   await db.execute(sql`DELETE FROM alerts`);
   await db.execute(sql`DELETE FROM speaker_events`);
-  await db.execute(sql`DELETE FROM esp32_sensor_data`);
   await db.execute(sql`DELETE FROM sensors`);
   await db.execute(sql`DELETE FROM scenario_configs`);
   await db.execute(sql`DELETE FROM community_broadcasts`);
@@ -97,11 +96,11 @@ export async function runDemoSeed(): Promise<{ entityId: number; summary: Record
 
   // 4. Units
   const unitRows = await Promise.all([
-    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-101", label: "Room 101", floor: "1", hardwareType: "adt_google",   smartSpeakerId: "google-hub-room-101" }).returning().then(r => r[0]),
-    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-205", label: "Room 205", floor: "2", hardwareType: "adt_google",   smartSpeakerId: "google-hub-room-205" }).returning().then(r => r[0]),
-    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-310", label: "Room 310", floor: "3", hardwareType: "adt_google",   smartSpeakerId: "google-hub-room-310" }).returning().then(r => r[0]),
-    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-412", label: "Room 412", floor: "4", hardwareType: "esp32_custom", esp32DeviceMac: "AA:BB:CC:DD:EE:01", esp32FirmwareVersion: "v2.1.4", esp32IpAddress: "192.168.1.41" }).returning().then(r => r[0]),
-    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-118", label: "Room 118", floor: "1", hardwareType: "esp32_custom", esp32DeviceMac: "AA:BB:CC:DD:EE:02", esp32FirmwareVersion: "v2.1.4", esp32IpAddress: "192.168.1.18" }).returning().then(r => r[0]),
+    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-101", label: "Room 101", floor: "1", hardwareType: "security_provider", securityProvider: "ADT", smartSpeakerId: "google-hub-room-101" }).returning().then(r => r[0]),
+    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-205", label: "Room 205", floor: "2", hardwareType: "security_provider", securityProvider: "ADT", smartSpeakerId: "google-hub-room-205" }).returning().then(r => r[0]),
+    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-310", label: "Room 310", floor: "3", hardwareType: "security_provider", securityProvider: "ADT", smartSpeakerId: "google-hub-room-310" }).returning().then(r => r[0]),
+    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-412", label: "Room 412", floor: "4", hardwareType: "security_provider", securityProvider: "Xfinity Home" }).returning().then(r => r[0]),
+    db.insert(schema.units).values({ entityId: entity.id, unitIdentifier: "Room-118", label: "Room 118", floor: "1", hardwareType: "security_provider", securityProvider: "Xfinity Home" }).returning().then(r => r[0]),
   ]);
   const [unit101, unit205, unit310, unit412, unit118] = unitRows;
 
@@ -167,16 +166,16 @@ export async function runDemoSeed(): Promise<{ entityId: number; summary: Record
 
   // 6. Sensors
   await Promise.all([
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit101.id, residentId: rMaggie.id, sensorType: "motion", location: "Bedroom",     adtDeviceId: "ADT-BED-101" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit101.id, residentId: rMaggie.id, sensorType: "motion", location: "Bathroom",     adtDeviceId: "ADT-BATH-101" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit205.id, residentId: rBob.id,   sensorType: "motion", location: "Bedroom",     adtDeviceId: "ADT-BED-205" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit205.id, residentId: rBob.id,   sensorType: "motion", location: "Living Room", adtDeviceId: "ADT-LVG-205" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit310.id, residentId: rEllie.id, sensorType: "motion", location: "Bedroom",     adtDeviceId: "ADT-BED-310" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit310.id, residentId: rEllie.id, sensorType: "motion", location: "Hallway",     adtDeviceId: "ADT-HALL-310" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit412.id, residentId: rDot.id,   sensorType: "motion", location: "Bedroom",     esp32DeviceMac: "AA:BB:CC:DD:EE:41" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit412.id, residentId: rDot.id,   sensorType: "motion", location: "Bathroom",    esp32DeviceMac: "AA:BB:CC:DD:EE:42" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit118.id, residentId: rFrank.id, sensorType: "motion", location: "Study",       esp32DeviceMac: "AA:BB:CC:DD:EE:18" } as any),
-    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit118.id, residentId: rFrank.id, sensorType: "motion", location: "Bedroom",     esp32DeviceMac: "AA:BB:CC:DD:EE:19" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit101.id, residentId: rMaggie.id, sensorType: "motion", location: "Bedroom",     providerDeviceId: "SEC-BED-101", securityProvider: "ADT" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit101.id, residentId: rMaggie.id, sensorType: "motion", location: "Bathroom",     providerDeviceId: "SEC-BATH-101", securityProvider: "ADT" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit205.id, residentId: rBob.id,   sensorType: "motion", location: "Bedroom",     providerDeviceId: "SEC-BED-205", securityProvider: "ADT" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit205.id, residentId: rBob.id,   sensorType: "motion", location: "Living Room", providerDeviceId: "SEC-LVG-205", securityProvider: "ADT" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit310.id, residentId: rEllie.id, sensorType: "motion", location: "Bedroom",     providerDeviceId: "SEC-BED-310", securityProvider: "ADT" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit310.id, residentId: rEllie.id, sensorType: "motion", location: "Hallway",     providerDeviceId: "SEC-HALL-310", securityProvider: "ADT" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit412.id, residentId: rDot.id,   sensorType: "motion", location: "Bedroom",     providerDeviceId: "SEC-BED-412", securityProvider: "Xfinity Home" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit412.id, residentId: rDot.id,   sensorType: "motion", location: "Bathroom",    providerDeviceId: "SEC-BATH-412", securityProvider: "Xfinity Home" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit118.id, residentId: rFrank.id, sensorType: "motion", location: "Study",       providerDeviceId: "SEC-STU-118", securityProvider: "Xfinity Home" } as any),
+    db.insert(schema.sensors).values({ entityId: entity.id, unitId: unit118.id, residentId: rFrank.id, sensorType: "motion", location: "Bedroom",     providerDeviceId: "SEC-BED-118", securityProvider: "Xfinity Home" } as any),
   ]);
 
   // 7. Scenario configs
@@ -205,18 +204,18 @@ export async function runDemoSeed(): Promise<{ entityId: number; summary: Record
       motionInserts.push(db.insert(schema.motionEvents).values({
         entityId: entity.id, sensorId: s.id, residentId: r.id,
         eventType: "motion_detected", location: s.location,
-        rawPayload: { source: s.adtDeviceId || s.esp32DeviceMac, strength: Math.floor(Math.random() * 40) + 60 },
+        rawPayload: { source: s.providerDeviceId, strength: Math.floor(Math.random() * 40) + 60 },
         createdAt: minutesAgo(gap * (count - i)),
       } as any));
     }
   }
   for (let i = 0; i < 8; i++) {
     const s = sensorsByResident(rBob.id)[i % 2];
-    motionInserts.push(db.insert(schema.motionEvents).values({ entityId: entity.id, sensorId: s.id, residentId: rBob.id, eventType: "motion_detected", location: s.location, rawPayload: { source: s.adtDeviceId }, createdAt: minutesAgo(60 + i * 15) } as any));
+    motionInserts.push(db.insert(schema.motionEvents).values({ entityId: entity.id, sensorId: s.id, residentId: rBob.id, eventType: "motion_detected", location: s.location, rawPayload: { source: s.providerDeviceId }, createdAt: minutesAgo(60 + i * 15) } as any));
   }
   for (let i = 0; i < 6; i++) {
     const s = sensorsByResident(rEllie.id)[i % 2];
-    motionInserts.push(db.insert(schema.motionEvents).values({ entityId: entity.id, sensorId: s.id, residentId: rEllie.id, eventType: "motion_detected", location: s.location, rawPayload: { source: s.adtDeviceId }, createdAt: minutesAgo(180 + i * 20) } as any));
+    motionInserts.push(db.insert(schema.motionEvents).values({ entityId: entity.id, sensorId: s.id, residentId: rEllie.id, eventType: "motion_detected", location: s.location, rawPayload: { source: s.providerDeviceId }, createdAt: minutesAgo(180 + i * 20) } as any));
   }
   await Promise.all(motionInserts);
 

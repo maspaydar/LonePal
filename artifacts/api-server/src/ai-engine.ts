@@ -1126,7 +1126,7 @@ const TRAINING_RUBRICS: Record<ServiceProviderType, TrainingRubric> = {
       { key: "blind_spot_avoidance", label: "Avoiding blind spots in senior rooms" },
     ],
     focus:
-      "This provider installs ADT and motion-detector hardware and prepares facility environments. " +
+      "This provider installs professional security-company monitoring hardware (ADT, Xfinity, and similar) and prepares facility environments. " +
       "Probe how they position sensors so falls, bathrooms, and bedsides are never left unmonitored; " +
       "how they verify each device with end-to-end testing before sign-off; and how they survey a room " +
       "to eliminate blind spots. Treat any answer that could leave a senior unmonitored as a safety failure.",

@@ -6,9 +6,12 @@ import { emergencyService } from "./emergency-service";
 import fs from "fs";
 import path from "path";
 
-const ADT_WEBHOOK_SECRET = process.env.ADT_WEBHOOK_SECRET;
+// Provider-neutral webhook secret shared with the retrofit security company
+// (ADT, Xfinity, Vivint, etc.). Legacy name ADT_WEBHOOK_SECRET still honored.
+const WEBHOOK_SECRET =
+  process.env.SENSOR_WEBHOOK_SECRET || process.env.ADT_WEBHOOK_SECRET;
 
-interface AdtPayload {
+interface ProviderPayload {
   deviceId: string;
   eventType: string;
   timestamp?: string;
@@ -18,9 +21,10 @@ interface AdtPayload {
 }
 
 function verifyHmacSignature(payload: string, signature: string | undefined): boolean {
-  if (!ADT_WEBHOOK_SECRET) {
-    dailyLogger.warn("motion", "ADT_WEBHOOK_SECRET is not configured — skipping HMAC verification");
-    return true;
+  if (!WEBHOOK_SECRET) {
+    // Fail closed: without a shared secret we cannot authenticate the sender.
+    dailyLogger.warn("motion", "SENSOR_WEBHOOK_SECRET is not configured — rejecting webhook");
+    return false;
   }
 
   if (!signature) {
@@ -29,7 +33,7 @@ function verifyHmacSignature(payload: string, signature: string | undefined): bo
   }
 
   const expectedSig = crypto
-    .createHmac("sha256", ADT_WEBHOOK_SECRET)
+    .createHmac("sha256", WEBHOOK_SECRET)
     .update(payload)
     .digest("hex");
 
@@ -62,10 +66,10 @@ export const motionService = {
     return verifyHmacSignature(rawBody, signatureHeader);
   },
 
-  async processMotionEvent(entityId: number, residentId: number, payload: AdtPayload) {
+  async processMotionEvent(entityId: number, residentId: number, payload: ProviderPayload) {
     const { deviceId, eventType, timestamp: eventTs } = payload;
 
-    dailyLogger.info("motion", `Processing ADT event for entity=${entityId} resident=${residentId}`, {
+    dailyLogger.info("motion", `Processing provider event for entity=${entityId} resident=${residentId}`, {
       deviceId,
       eventType,
     });
@@ -78,7 +82,7 @@ export const motionService = {
       throw new Error(`Resident ${residentId} does not belong to entity ${entityId}`);
     }
 
-    let sensor = deviceId ? await storage.getSensorByAdtId(deviceId) : undefined;
+    let sensor = deviceId ? await storage.getSensorByProviderDeviceId(deviceId) : undefined;
 
     const location = sensor?.location || payload.sensorZone || "unknown";
 

@@ -20,9 +20,8 @@ import { requireCompanyAuth, requireCompanyAdmin, verifyCompanyToken } from "./m
 import { superAdminAuthMiddleware } from "./middleware/super-admin-auth";
 import superAdminRouter from "./routes/super-admin/index";
 import maintenanceRouter from "./routes/maintenance";
-import esp32Router from "./routes/iot/index";
 import sensorIngestRouter from "./routes/iot/sensor-ingest";
-import { deviceConfigRouter, residentDeviceSettingsRouter } from "./routes/devices";
+import { residentDeviceSettingsRouter } from "./routes/devices";
 import companyRouter from "./routes/company/index";
 import mobileRouter from "./routes/mobile/index";
 import registrationRouter from "./routes/registration";
@@ -31,82 +30,13 @@ import serviceProvidersRouter from "./routes/service-providers";
 import { WebhookHandlers } from "./webhookHandlers";
 import { getUncachableStripeClient } from "./stripeClient";
 import { pushCheckIn, activateListenMode, handleSpeakerResponse, pushCheckInWithListenMode, getActiveSessions, setSpeakerBroadcastFn, getSpeakerHealth } from "./services/speaker-gateway";
-import { registerEsp32Device, getEsp32Health, getConnectedEsp32Devices, pushEsp32ConfigUpdate } from "./services/esp32-speaker";
 import { initLogStreamer, streamInfo } from "./services/log-streamer";
-import { normalizeMac } from "./lib/device-mac";
 import crypto from "crypto";
 import { z } from "zod/v4";
 
 let _insightsAI: GoogleGenAI | null = null;
 const _entityInsightsAI = new Map<number, GoogleGenAI>();
 
-type DeviceCodeValidation =
-  | { valid: false; reason: "format" | "not_found" | "claimed"; message: string }
-  | { valid: true; deviceMac: string; online: boolean; alreadyLinked: boolean };
-
-/**
- * Validate an entered device pairing code against real/known devices for an
- * entity. Shared by the company-side validate-code endpoint AND the unit
- * create/update paths so a bad code can never be persisted, even by a racey or
- * bypassed client.
- */
-async function validateDeviceCode(
-  entityId: number,
-  rawCode: string,
-): Promise<DeviceCodeValidation> {
-  const normalized = normalizeMac(rawCode);
-  if (!normalized) {
-    return {
-      valid: false,
-      reason: "format",
-      message:
-        "That doesn't look like a valid pairing code. Check the code on the back of the device and try again.",
-    };
-  }
-
-  // Is the device connected to us right now? Compare in canonical form so any
-  // stored/transport format variations still match.
-  const online = getConnectedEsp32Devices().some((m) => normalizeMac(m) === normalized);
-
-  // Already paired to one of THIS family's homes? That's fine — re-pairing /
-  // editing. Bound to a different account → it belongs to someone else.
-  const existingUnit = await storage.getUnitByEsp32Mac(normalized);
-  if (existingUnit) {
-    if (existingUnit.entityId !== entityId) {
-      return {
-        valid: false,
-        reason: "claimed",
-        message:
-          "This device is already paired with another account. Please contact support if you think this is a mistake.",
-      };
-    }
-    return { valid: true, deviceMac: normalized, online, alreadyLinked: true };
-  }
-
-  const existingSensor = await storage.getSensorByEsp32Mac(normalized);
-  if (existingSensor && existingSensor.entityId !== entityId) {
-    return {
-      valid: false,
-      reason: "claimed",
-      message:
-        "This device is already paired with another account. Please contact support if you think this is a mistake.",
-    };
-  }
-
-  // A device is "real" if it's talking to us right now (connected over the
-  // ESP32 WebSocket) or it has already reported a sensor under this account.
-  const known = online || !!existingSensor;
-  if (!known) {
-    return {
-      valid: false,
-      reason: "not_found",
-      message:
-        "We couldn't find a device with that code. Make sure it's plugged in and connected to Wi-Fi, then try again.",
-    };
-  }
-
-  return { valid: true, deviceMac: normalized, online, alreadyLinked: false };
-}
 
 function getAIForInsights(): GoogleGenAI | null {
   if (!process.env.GEMINI_API_KEY) return null;
@@ -151,26 +81,10 @@ export async function registerRoutes(
     ws.on("close", () => log("WebSocket client disconnected", "ws"));
   });
 
-  const esp32Wss = new WebSocketServer({ server: httpServer, path: "/ws/esp32" });
-  esp32Wss.on("connection", (ws, req) => {
-    const url = new URL(req.url || "", `http://${req.headers.host}`);
-    // Register under the canonical MAC so lookups (config, validation, pushes)
-    // match regardless of how the firmware formats its address.
-    const deviceMac = normalizeMac(url.searchParams.get("mac")) || url.searchParams.get("mac");
-    if (deviceMac) {
-      registerEsp32Device(deviceMac, ws);
-      log(`ESP32 WebSocket connected: ${deviceMac}`, "esp32-ws");
-    } else {
-      log("ESP32 WebSocket connected without MAC address", "esp32-ws");
-      ws.close(1008, "Missing mac parameter");
-    }
-  });
 
   app.use("/api/super-admin", superAdminRouter);
   app.use("/api/maintenance", maintenanceRouter);
-  app.use("/api/esp32", esp32Router);
   app.use("/api/v1/sensor-ingest", sensorIngestRouter);
-  app.use("/api/devices", deviceConfigRouter);
   app.use("/api/mobile/device-settings", residentDeviceSettingsRouter);
   app.use("/api/company", companyRouter);
   app.use("/api/mobile", mobileRouter);
@@ -295,7 +209,6 @@ export async function registerRoutes(
           const unitSensors = await storage.getSensorsByUnit(unit.id);
           const resident = await storage.getResidentByUnit(unit.id);
           const speakerHealth = unit.smartSpeakerId ? getSpeakerHealth(unit.smartSpeakerId) : null;
-          const esp32Health = unit.esp32DeviceMac ? getEsp32Health(unit.esp32DeviceMac) : null;
 
           unitStatuses.push({
             unitId: unit.id,
@@ -306,25 +219,16 @@ export async function registerRoutes(
             residentAssigned: !!resident,
             residentName: resident ? `${resident.firstName} ${resident.lastName}` : null,
             residentStatus: resident?.status || null,
-            smartSpeaker: unit.hardwareType === "adt_google" ? {
-              id: unit.smartSpeakerId || null,
+            smartSpeaker: unit.smartSpeakerId ? {
+              id: unit.smartSpeakerId,
               healthy: speakerHealth?.healthy ?? null,
               consecutiveFailures: speakerHealth?.consecutiveFailures ?? 0,
-            } : null,
-            esp32Device: unit.hardwareType === "esp32_custom" ? {
-              deviceMac: unit.esp32DeviceMac || null,
-              firmwareVersion: unit.esp32FirmwareVersion || null,
-              lastHeartbeat: unit.esp32LastHeartbeat || null,
-              ipAddress: unit.esp32IpAddress || null,
-              signalStrength: unit.esp32SignalStrength || null,
-              connected: esp32Health?.connected ?? false,
-              healthy: esp32Health?.healthy ?? false,
             } : null,
             motionSensors: unitSensors.map(s => ({
               id: s.id,
               location: s.location,
-              adtDeviceId: s.adtDeviceId,
-              esp32DeviceMac: s.esp32DeviceMac,
+              providerDeviceId: s.providerDeviceId,
+              securityProvider: s.securityProvider,
               sensorType: s.sensorType,
               isActive: s.isActive,
             })),
@@ -562,18 +466,26 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  // --- ADT Webhook ---
-  app.post("/api/webhook/adt", async (req, res) => {
+  // --- Security-provider webhook (ADT, Xfinity, Vivint, etc. — provider-neutral) ---
+  const providerWebhookHandler = async (req: any, res: any) => {
     try {
+      // Signed like every other provider-facing endpoint: HMAC-SHA256 over the raw
+      // body, keyed on SENSOR_WEBHOOK_SECRET. Fails closed when unset.
+      const rawBody = (req as any).rawBody as Buffer | undefined;
+      const signature = (req.headers["x-provider-signature"] ?? req.headers["x-adt-signature"]) as string | undefined;
+      if (!motionService.verifySignature(rawBody?.toString() ?? JSON.stringify(req.body), signature)) {
+        return res.status(401).json({ error: "Invalid or missing signature" });
+      }
+
       const { deviceId, eventType, timestamp: eventTs, ...rest } = req.body;
 
       if (!deviceId || !eventType) {
         return res.status(400).json({ error: "Missing deviceId or eventType" });
       }
 
-      const sensor = await storage.getSensorByAdtId(deviceId);
+      const sensor = await storage.getSensorByProviderDeviceId(deviceId);
       if (!sensor) {
-        log(`Unknown ADT device: ${deviceId}`, "webhook");
+        log(`Unknown provider device: ${deviceId}`, "webhook");
         return res.status(404).json({ error: "Unknown sensor device" });
       }
 
@@ -602,16 +514,18 @@ export async function registerRoutes(
         data: motionEvent,
       });
 
-      log(`ADT event: ${eventType} from ${deviceId} at ${sensor.location} (unit=${sensor.unitId || 'none'})`, "webhook");
+      log(`Provider event: ${eventType} from ${deviceId} at ${sensor.location} (unit=${sensor.unitId || 'none'})`, "webhook");
       res.json({ received: true, eventId: motionEvent.id });
     } catch (error) {
       log(`Webhook error: ${error}`, "webhook");
       res.status(500).json({ error: "Webhook processing failed" });
     }
-  });
+  };
+  app.post("/api/webhook/security-provider", providerWebhookHandler);
+  app.post("/api/webhook/adt", providerWebhookHandler); // legacy path
 
-  // --- Safety ADT Webhook (per-entity, per-resident with HMAC) ---
-  app.post("/api/safety/adt-webhook/:entityId/:userId", async (req, res) => {
+  // --- Safety provider webhook (per-entity, per-resident with HMAC) ---
+  app.post("/api/safety/provider-webhook/:entityId/:userId", async (req, res) => {
     try {
       const entityId = Number(req.params.entityId);
       const residentId = Number(req.params.userId);
@@ -621,7 +535,7 @@ export async function registerRoutes(
       }
 
       const rawBody = (req as any).rawBody;
-      const signature = req.headers["x-adt-signature"] as string | undefined;
+      const signature = (req.headers["x-provider-signature"] ?? req.headers["x-adt-signature"]) as string | undefined;
 
       if (!motionService.verifySignature(rawBody?.toString() || JSON.stringify(req.body), signature)) {
         dailyLogger.warn("safety-webhook", `HMAC verification failed for entity=${entityId} resident=${residentId}`, {
@@ -1113,16 +1027,6 @@ export async function registerRoutes(
       const existing = await storage.getUnitByIdentifier(entityId, parsed.unitIdentifier);
       if (existing) return res.status(409).json({ error: `Unit ${parsed.unitIdentifier} already exists` });
 
-      // Re-validate any pairing code server-side so a bad/stale code can't be
-      // persisted by a racey or bypassed client. Store the canonical MAC.
-      if (parsed.esp32DeviceMac) {
-        const check = await validateDeviceCode(entityId, parsed.esp32DeviceMac);
-        if (!check.valid) {
-          return res.status(400).json({ error: check.message, reason: check.reason });
-        }
-        parsed.esp32DeviceMac = check.deviceMac;
-      }
-
       const unit = await storage.createUnit(parsed);
       res.status(201).json(unit);
     } catch (error: any) {
@@ -1138,22 +1042,10 @@ export async function registerRoutes(
       if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
       const existing = await storage.getUnit(unitId);
       if (!existing || existing.entityId !== entityId) return res.status(404).json({ error: "Unit not found" });
-      const { unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac } = req.body;
-
-      // Re-validate any pairing code server-side so a bad/stale code can't be
-      // persisted by a racey or bypassed client. Store the canonical MAC.
-      // (null/empty clears the pairing and skips validation.)
-      let macToStore = esp32DeviceMac;
-      if (esp32DeviceMac) {
-        const check = await validateDeviceCode(entityId, esp32DeviceMac);
-        if (!check.valid) {
-          return res.status(400).json({ error: check.message, reason: check.reason });
-        }
-        macToStore = check.deviceMac;
-      }
+      const { unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, securityProvider } = req.body;
 
       const updated = await storage.updateUnit(unitId, {
-        unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, esp32DeviceMac: macToStore,
+        unitIdentifier, label, smartSpeakerId, floor, isActive, hardwareType, securityProvider,
       });
       if (!updated) return res.status(404).json({ error: "Unit not found" });
       res.json(updated);
@@ -1286,7 +1178,6 @@ export async function registerRoutes(
       const saved = await storage.upsertDeviceSettings({
         entityId,
         unitId,
-        deviceMac: unit.esp32DeviceMac || null,
         sensitivity: parsed.data.sensitivity ?? existing?.sensitivity ?? 50,
         detectionDistance: parsed.data.detectionDistance ?? existing?.detectionDistance ?? 400,
         aiCheckInFrequency: parsed.data.aiCheckInFrequency,
@@ -1294,35 +1185,10 @@ export async function registerRoutes(
         activeHoursEnd: parsed.data.activeHoursEnd,
       });
 
-      if (unit.esp32DeviceMac) {
-        pushEsp32ConfigUpdate(unit.esp32DeviceMac, {
-          sensitivity: saved.sensitivity,
-          detectionDistance: saved.detectionDistance,
-          aiCheckInFrequency: saved.aiCheckInFrequency,
-          activeHoursStart: saved.activeHoursStart,
-          activeHoursEnd: saved.activeHoursEnd,
-        });
-      }
 
       res.json(saved);
     } catch (error) {
       res.status(500).json({ error: "Failed to save device settings" });
-    }
-  });
-
-  // --- Device pairing code validation (company-side; used by family onboarding) ---
-  // Checks an entered pairing code against real/known devices BEFORE it's saved,
-  // so a mistyped code surfaces an error immediately instead of failing silently.
-  app.get("/api/entities/:entityId/devices/validate-code", requireCompanyAuth, async (req, res) => {
-    try {
-      const entityId = Number(req.params.entityId);
-      if (req.companyUser!.entityId !== entityId) return res.status(403).json({ error: "Access denied" });
-
-      const raw = typeof req.query.code === "string" ? req.query.code : "";
-      const result = await validateDeviceCode(entityId, raw);
-      return res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to validate device code" });
     }
   });
 
@@ -1623,11 +1489,8 @@ export async function registerRoutes(
   app.get("/api/speaker/health/:speakerId", requireCompanyAuth, async (req, res) => {
     const speakerId = req.params.speakerId as string;
     const entityId = req.companyUser!.entityId;
-    let unit = await storage.getUnitByEsp32Mac(speakerId);
-    if (!unit) {
-      const entityUnits = await storage.getUnits(entityId);
-      unit = entityUnits.find(u => u.smartSpeakerId === speakerId) as typeof unit;
-    }
+    const entityUnits = await storage.getUnits(entityId);
+    const unit = entityUnits.find(u => u.smartSpeakerId === speakerId);
     if (!unit || unit.entityId !== entityId) {
       return res.status(403).json({ error: "Access denied" });
     }
@@ -1751,11 +1614,11 @@ export async function registerRoutes(
             component: "motion_sensor",
             status: sensor.isActive ? "pass" : "warn",
             message: sensor.isActive
-              ? `Sensor ${sensor.adtDeviceId || sensor.location} is active${hasRecentActivity ? " with recent events" : ""}`
-              : `Sensor ${sensor.adtDeviceId || sensor.location} is inactive`,
+              ? `Sensor ${sensor.providerDeviceId || sensor.location} is active${hasRecentActivity ? " with recent events" : ""}`
+              : `Sensor ${sensor.providerDeviceId || sensor.location} is inactive`,
             details: {
               sensorId: sensor.id,
-              adtDeviceId: sensor.adtDeviceId,
+              providerDeviceId: sensor.providerDeviceId,
               location: sensor.location,
               isActive: sensor.isActive,
               lastEventDetected: hasRecentActivity,

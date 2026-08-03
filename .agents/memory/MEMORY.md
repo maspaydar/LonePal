@@ -5,3 +5,4 @@
 - [Companion persona prompt paths](companion-persona-paths.md) — the companion's system prompt is built in two separate functions (ai-engine vs persona-service); persona changes must touch both + invalidate cache.
 - [HeyGrand server entry pattern](heygrand-server-entry.md) — registerRoutes(httpServer, app) pattern preserved from original; log() in logger-util.ts to break circular dep; no OpenAPI codegen — original fetch layer kept.
 - [TypeScript typecheck baseline](typecheck-baseline.md) — api-server has ~158 pre-existing tsc errors (TS7030 repo-wide); esbuild build skips typecheck; incremental cache under-reports — delete .tsbuildinfo for a true count.
+- [Security-provider webhook contract](provider-webhook-contract.md) — ESP32 removed Aug 2026; retrofit-only via signed provider webhooks (SENSOR_WEBHOOK_SECRET, x-provider-signature); never reintroduce unsigned ingest.

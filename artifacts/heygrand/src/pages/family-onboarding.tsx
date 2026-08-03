@@ -16,7 +16,7 @@ import {
   Loader2,
   CheckCircle2,
   User,
-  Wifi,
+  Shield,
   Clock,
   PartyPopper,
   UserPlus,
@@ -90,20 +90,10 @@ export default function FamilyOnboardingPage() {
   const [aboutThem, setAboutThem] = useState("");
 
   // Device / check-in fields
-  const [deviceCode, setDeviceCode] = useState("");
+  const [securityProvider, setSecurityProvider] = useState("");
   const [checkInFrequency, setCheckInFrequency] = useState(180);
   const [wakeTime, setWakeTime] = useState("07:00");
   const [sleepTime, setSleepTime] = useState("22:00");
-
-  // Device pairing-code validation state. `idle` until a code is typed; then we
-  // debounce a check against real/known devices so a mistyped code surfaces an
-  // error inline instead of saving silently.
-  type DeviceCheck =
-    | { status: "idle" }
-    | { status: "checking" }
-    | { status: "valid"; message: string; online: boolean; deviceMac: string }
-    | { status: "invalid"; message: string };
-  const [deviceCheck, setDeviceCheck] = useState<DeviceCheck>({ status: "idle" });
 
   // Pre-fill guards so a family's in-progress edits aren't clobbered on refetch.
   const [profilePrefilled, setProfilePrefilled] = useState(false);
@@ -124,7 +114,7 @@ export default function FamilyOnboardingPage() {
   useEffect(() => {
     if (editUnit && !unitPrefilled) {
       setUnitId(editUnit.id);
-      if (editUnit.esp32DeviceMac) setDeviceCode(editUnit.esp32DeviceMac);
+      if (editUnit.securityProvider) setSecurityProvider(editUnit.securityProvider);
       setUnitPrefilled(true);
     }
   }, [editUnit, unitPrefilled]);
@@ -137,55 +127,6 @@ export default function FamilyOnboardingPage() {
       setSettingsPrefilled(true);
     }
   }, [deviceSettings, settingsPrefilled]);
-
-  // Debounced validation of the pairing code against real/known devices.
-  useEffect(() => {
-    const code = deviceCode.trim();
-    if (!code) {
-      setDeviceCheck({ status: "idle" });
-      return;
-    }
-    if (!entityId) return;
-
-    let cancelled = false;
-    setDeviceCheck({ status: "checking" });
-    const handle = setTimeout(async () => {
-      try {
-        const res = await apiRequest(
-          "GET",
-          `/api/entities/${entityId}/devices/validate-code?code=${encodeURIComponent(code)}`,
-        );
-        const data = await res.json();
-        if (cancelled) return;
-        if (data.valid) {
-          setDeviceCheck({
-            status: "valid",
-            online: !!data.online,
-            deviceMac: data.deviceMac || code,
-            message: data.online
-              ? "Device found and connected — you're all set!"
-              : "Device found. We'll connect as soon as it's powered on.",
-          });
-        } else {
-          setDeviceCheck({
-            status: "invalid",
-            message: data.message || "We couldn't verify that pairing code.",
-          });
-        }
-      } catch (err: any) {
-        if (cancelled) return;
-        setDeviceCheck({
-          status: "invalid",
-          message: "We couldn't check that code right now. Please try again.",
-        });
-      }
-    }, 500);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [deviceCode, entityId]);
 
   const lovedOneFirst = (preferredName || firstName || "your loved one").trim();
 
@@ -225,30 +166,18 @@ export default function FamilyOnboardingPage() {
       if (!residentId) throw new Error("Profile not created yet");
       let targetUnitId = unitId;
 
-      // Bind validation to the CURRENT input at submit time. A code is only
-      // saved if it validated AND still matches what's in the box (canonical
-      // form), so a changed/unvalidated code can't slip through a debounce race.
-      const enteredMac = deviceCode.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
-      let macToSave: string | undefined;
-      if (enteredMac) {
-        if (deviceCheck.status !== "valid" || deviceCheck.deviceMac !== enteredMac) {
-          throw new Error("Please wait for the pairing code to be verified, or fix it before continuing.");
-        }
-        macToSave = deviceCheck.deviceMac;
-      }
-
       if (isEditMode && targetUnitId) {
         // Update the loved one's existing home instead of creating a duplicate.
         await apiRequest("PUT", `/api/entities/${entityId}/units/${targetUnitId}`, {
-          esp32DeviceMac: macToSave || null,
+          securityProvider: securityProvider || null,
         });
       } else {
         const suffix = Math.random().toString(36).slice(2, 6);
         const unitRes = await apiRequest("POST", `/api/entities/${entityId}/units`, {
           unitIdentifier: `${lovedOneFirst}-home-${suffix}`,
           label: `${lovedOneFirst}'s home`,
-          hardwareType: "esp32_custom",
-          esp32DeviceMac: macToSave || undefined,
+          hardwareType: "security_provider",
+          securityProvider: securityProvider || undefined,
         });
         const unit = await unitRes.json();
         targetUnitId = unit.id;
@@ -291,7 +220,7 @@ export default function FamilyOnboardingPage() {
     setLastName("");
     setPreferredName("");
     setAboutThem("");
-    setDeviceCode("");
+    setSecurityProvider("");
     setCheckInFrequency(180);
     setWakeTime("07:00");
     setSleepTime("22:00");
@@ -343,7 +272,7 @@ export default function FamilyOnboardingPage() {
               <div className="w-full space-y-3 text-left">
                 {[
                   { icon: User, title: "Tell us about your loved one", desc: "A few details so check-ins feel personal" },
-                  { icon: Wifi, title: "Connect their device", desc: "Pair the HeyGrand sensor (or do this later)" },
+                  { icon: Shield, title: "Professional monitoring setup", desc: "Tell us who installed the sensors" },
                   { icon: Clock, title: "Choose check-in times", desc: "How often and when we should reach out" },
                 ].map((item) => (
                   <div key={item.title} className="flex items-start gap-3 rounded-lg border bg-card p-3">
@@ -514,45 +443,17 @@ export default function FamilyOnboardingPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="deviceCode">Device pairing code <span className="text-muted-foreground">(optional)</span></Label>
+                <Label htmlFor="securityProvider">Security provider <span className="text-muted-foreground">(optional)</span></Label>
                 <Input
-                  id="deviceCode"
-                  value={deviceCode}
-                  onChange={(e) => setDeviceCode(e.target.value)}
-                  placeholder="Found on the back of your HeyGrand device"
-                  data-testid="input-device-code"
-                  aria-invalid={deviceCheck.status === "invalid"}
-                  className={
-                    deviceCheck.status === "invalid"
-                      ? "border-destructive focus-visible:ring-destructive"
-                      : deviceCheck.status === "valid"
-                      ? "border-green-500 focus-visible:ring-green-500"
-                      : undefined
-                  }
+                  id="securityProvider"
+                  value={securityProvider}
+                  onChange={(e) => setSecurityProvider(e.target.value)}
+                  placeholder="e.g. ADT, Xfinity Home, Vivint"
+                  data-testid="input-security-provider"
                 />
-                {deviceCheck.status === "checking" && (
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="status-device-checking">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Checking for your device...
-                  </p>
-                )}
-                {deviceCheck.status === "valid" && (
-                  <p className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400" data-testid="status-device-valid">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    {deviceCheck.message}
-                  </p>
-                )}
-                {deviceCheck.status === "invalid" && (
-                  <p className="flex items-center gap-1.5 text-xs text-destructive" data-testid="status-device-invalid">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    {deviceCheck.message}
-                  </p>
-                )}
-                {deviceCheck.status === "idle" && (
-                  <p className="text-xs text-muted-foreground">
-                    Don't have it handy? No problem — you can connect the device anytime from settings.
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground pt-1">
+                  A certified technician from your provider installs the sensors, and HeyGrand receives events securely from them. Any provider works!
+                </p>
               </div>
 
               <div className="flex gap-3 pt-1">
@@ -562,11 +463,7 @@ export default function FamilyOnboardingPage() {
                 </Button>
                 <Button
                   className="flex-1"
-                  disabled={
-                    setupDevice.isPending ||
-                    deviceCheck.status === "checking" ||
-                    deviceCheck.status === "invalid"
-                  }
+                  disabled={setupDevice.isPending}
                   onClick={() => setupDevice.mutate()}
                   data-testid="button-finish-setup"
                 >

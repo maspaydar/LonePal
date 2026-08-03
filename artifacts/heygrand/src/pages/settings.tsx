@@ -119,7 +119,7 @@ export default function SettingsPage() {
               {isTrial && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-0 text-xs" data-testid="badge-settings-trial">Free Trial</Badge>}
               {isPaused && <Badge variant="destructive" className="text-xs" data-testid="badge-settings-paused">Paused</Badge>}
             </div>
-            {isTrial && subStatus?.daysRemaining !== null && (
+            {isTrial && subStatus?.daysRemaining !== null && subStatus?.daysRemaining !== undefined && (
               <p className="text-sm text-muted-foreground flex items-center gap-1">
                 <Clock className="w-3 h-3" />
                 {subStatus.daysRemaining === 0 ? "Trial expires today" : `${subStatus.daysRemaining} day${subStatus.daysRemaining === 1 ? "" : "s"} remaining in trial`}
@@ -159,20 +159,22 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <Wifi className="h-4 w-4" /> ADT Integration
+                <Wifi className="h-4 w-4" /> Professional Monitoring Integration
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Configure your ADT webhook endpoint to receive motion sensor events.
+                Configure your security provider webhook endpoint to receive motion sensor events.
               </p>
               <div className="p-3 rounded-md bg-muted">
                 <p className="text-xs font-mono text-muted-foreground break-all">
-                  POST {window.location.origin}/api/webhook/adt
+                  POST {window.location.origin}/api/webhook/security-provider
                 </p>
               </div>
               <p className="text-xs text-muted-foreground">
-                Send JSON payload with deviceId, eventType, and optional timestamp fields.
+                Send a JSON payload with deviceId, eventType, and optional timestamp fields.
+                Each request must include an x-provider-signature header: HMAC-SHA256 of the
+                raw request body, keyed with the shared webhook secret.
               </p>
             </CardContent>
           </Card>

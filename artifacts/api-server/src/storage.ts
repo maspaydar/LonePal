@@ -4,7 +4,6 @@ import {
   type Unit, type InsertUnit,
   type Resident, type InsertResident, type OnboardingStatus, type OnboardingProfile,
   type Sensor, type InsertSensor,
-  type Esp32SensorData, type InsertEsp32SensorData,
   type MotionEvent, type InsertMotionEvent,
   type ScenarioConfig, type InsertScenarioConfig,
   type ActiveScenario, type InsertActiveScenario,
@@ -29,7 +28,7 @@ import {
   type MonitoringObservation, type InsertMonitoringObservation,
   type ServiceProvider, type InsertServiceProvider, type ServiceProviderType, type ServiceProviderStatus,
   type TrainingLog, type InsertTrainingLog,
-  users, entities, residents, sensors, esp32SensorData, motionEvents, units,
+  users, entities, residents, sensors, motionEvents, units,
   scenarioConfigs, activeScenarios, alerts, conversations, messages,
   communityBroadcasts, mobileTokens, superAdmins, superAdminAuditLogs, facilities, facilityHealthLogs,
   maintenanceLogs, userPreferences, deviceSettings, devicePairingCodes, speakerEvents,
@@ -69,16 +68,9 @@ export interface IStorage {
 
   getSensors(entityId: number): Promise<Sensor[]>;
   getSensor(id: number): Promise<Sensor | undefined>;
-  getSensorByAdtId(adtDeviceId: string): Promise<Sensor | undefined>;
-  getSensorByEsp32Mac(deviceMac: string): Promise<Sensor | undefined>;
+  getSensorByProviderDeviceId(providerDeviceId: string): Promise<Sensor | undefined>;
   createSensor(sensor: InsertSensor): Promise<Sensor>;
   updateSensor(id: number, data: Partial<InsertSensor>): Promise<Sensor | undefined>;
-
-  createEsp32SensorData(data: InsertEsp32SensorData): Promise<Esp32SensorData>;
-  getEsp32SensorData(unitId: number, limit?: number): Promise<Esp32SensorData[]>;
-  getLatestEsp32SensorData(unitId: number): Promise<Esp32SensorData | undefined>;
-
-  getUnitByEsp32Mac(deviceMac: string): Promise<Unit | undefined>;
 
   createMotionEvent(event: InsertMotionEvent): Promise<MotionEvent>;
   getMotionEvents(entityId: number, limit?: number): Promise<MotionEvent[]>;
@@ -160,7 +152,6 @@ export interface IStorage {
   upsertUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences>;
 
   getDeviceSettingsByUnit(unitId: number): Promise<DeviceSettings | undefined>;
-  getDeviceSettingsByMac(deviceMac: string): Promise<DeviceSettings | undefined>;
   upsertDeviceSettings(settings: InsertDeviceSettings): Promise<DeviceSettings>;
 
   /** @deprecated Pairing codes removed — mobile login returns unit data directly */
@@ -347,8 +338,8 @@ export class DatabaseStorage implements IStorage {
     return sensor;
   }
 
-  async getSensorByAdtId(adtDeviceId: string): Promise<Sensor | undefined> {
-    const [sensor] = await db.select().from(sensors).where(eq(sensors.adtDeviceId, adtDeviceId));
+  async getSensorByProviderDeviceId(providerDeviceId: string): Promise<Sensor | undefined> {
+    const [sensor] = await db.select().from(sensors).where(eq(sensors.providerDeviceId, providerDeviceId));
     return sensor;
   }
 
@@ -362,41 +353,6 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getSensorByEsp32Mac(deviceMac: string): Promise<Sensor | undefined> {
-    // Format-tolerant match: compare the canonical (lowercase, separator-free)
-    // form on both sides so "AA:BB:.." and "aabb.." resolve to the same device.
-    const canonical = deviceMac.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
-    const [sensor] = await db
-      .select()
-      .from(sensors)
-      .where(sql`lower(regexp_replace(${sensors.esp32DeviceMac}, '[^0-9A-Fa-f]', '', 'g')) = ${canonical}`);
-    return sensor;
-  }
-
-  async createEsp32SensorData(data: InsertEsp32SensorData): Promise<Esp32SensorData> {
-    const [created] = await db.insert(esp32SensorData).values(data).returning();
-    return created;
-  }
-
-  async getEsp32SensorData(unitId: number, limit = 50): Promise<Esp32SensorData[]> {
-    return db.select().from(esp32SensorData).where(eq(esp32SensorData.unitId, unitId)).orderBy(desc(esp32SensorData.createdAt)).limit(limit);
-  }
-
-  async getLatestEsp32SensorData(unitId: number): Promise<Esp32SensorData | undefined> {
-    const [data] = await db.select().from(esp32SensorData).where(eq(esp32SensorData.unitId, unitId)).orderBy(desc(esp32SensorData.createdAt)).limit(1);
-    return data;
-  }
-
-  async getUnitByEsp32Mac(deviceMac: string): Promise<Unit | undefined> {
-    // Format-tolerant match: compare the canonical (lowercase, separator-free)
-    // form on both sides so "AA:BB:.." and "aabb.." resolve to the same device.
-    const canonical = deviceMac.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
-    const [unit] = await db
-      .select()
-      .from(units)
-      .where(sql`lower(regexp_replace(${units.esp32DeviceMac}, '[^0-9A-Fa-f]', '', 'g')) = ${canonical}`);
-    return unit;
-  }
 
   async createMotionEvent(event: InsertMotionEvent): Promise<MotionEvent> {
     const [created] = await db.insert(motionEvents).values(event).returning();
@@ -555,9 +511,9 @@ export class DatabaseStorage implements IStorage {
 
     // Create units first — residents and sensors are assigned to them immediately
     const unitDefs = [
-      { entityId, unitIdentifier: "Room-101", label: "Room 101", floor: "1", hardwareType: "adt_google" as const },
-      { entityId, unitIdentifier: "Room-205", label: "Room 205", floor: "2", hardwareType: "adt_google" as const },
-      { entityId, unitIdentifier: "Room-310", label: "Room 310", floor: "3", hardwareType: "adt_google" as const },
+      { entityId, unitIdentifier: "Room-101", label: "Room 101", floor: "1", hardwareType: "security_provider" as const },
+      { entityId, unitIdentifier: "Room-205", label: "Room 205", floor: "2", hardwareType: "security_provider" as const },
+      { entityId, unitIdentifier: "Room-310", label: "Room 310", floor: "3", hardwareType: "security_provider" as const },
     ];
 
     const [unit101, unit205, unit310] = await Promise.all(
@@ -617,9 +573,9 @@ export class DatabaseStorage implements IStorage {
     );
 
     const demoSensors = [
-      { entityId, unitId: unit101.id, residentId: resident101.id, sensorType: "motion", location: "hallway_main", adtDeviceId: "ADT-HALL-001" },
-      { entityId, unitId: unit205.id, residentId: resident205.id, sensorType: "motion", location: "common_room", adtDeviceId: "ADT-COM-001" },
-      { entityId, unitId: unit310.id, residentId: resident310.id, sensorType: "motion", location: "dining_room", adtDeviceId: "ADT-DIN-001" },
+      { entityId, unitId: unit101.id, residentId: resident101.id, sensorType: "motion", location: "hallway_main", providerDeviceId: "SEC-HALL-001", securityProvider: "ADT" },
+      { entityId, unitId: unit205.id, residentId: resident205.id, sensorType: "motion", location: "common_room", providerDeviceId: "SEC-COM-001", securityProvider: "ADT" },
+      { entityId, unitId: unit310.id, residentId: resident310.id, sensorType: "motion", location: "dining_room", providerDeviceId: "SEC-DIN-001", securityProvider: "ADT" },
     ];
 
     await Promise.all(demoSensors.map(s => this.createSensor(s as any)));
@@ -657,7 +613,7 @@ export class DatabaseStorage implements IStorage {
         unitIdentifier: `Room-${room}`,
         label: `Room ${room}`,
         floor: floorOf(room),
-        hardwareType: "adt_google",
+        hardwareType: "security_provider",
       });
       roomToUnit[room] = unit;
     }
@@ -669,12 +625,12 @@ export class DatabaseStorage implements IStorage {
         .map(r => this.updateResident(r.id, { unitId: roomToUnit[r.roomNumber!].id } as any))
     );
 
-    // Update sensors — map each known ADT device ID to its known room number explicitly
+    // Update sensors — map each known provider device ID to its known room number explicitly
     const existingSensors = await this.getSensors(entityId);
     const sensorDeviceToRoom: Record<string, string> = {
-      "ADT-HALL-001": "101",
-      "ADT-COM-001": "205",
-      "ADT-DIN-001": "310",
+      "SEC-HALL-001": "101",
+      "SEC-COM-001": "205",
+      "SEC-DIN-001": "310",
     };
 
     const residentByRoom = Object.fromEntries(
@@ -685,9 +641,9 @@ export class DatabaseStorage implements IStorage {
 
     await Promise.all(
       existingSensors
-        .filter(s => !s.unitId && s.adtDeviceId && sensorDeviceToRoom[s.adtDeviceId])
+        .filter(s => !s.unitId && s.providerDeviceId && sensorDeviceToRoom[s.providerDeviceId])
         .map(s => {
-          const room = sensorDeviceToRoom[s.adtDeviceId!];
+          const room = sensorDeviceToRoom[s.providerDeviceId!];
           const unit = roomToUnit[room];
           const resident = residentByRoom[room];
           if (!unit) return Promise.resolve();
@@ -904,12 +860,6 @@ export class DatabaseStorage implements IStorage {
   async getDeviceSettingsByUnit(unitId: number): Promise<DeviceSettings | undefined> {
     const [settings] = await db.select().from(deviceSettings).where(eq(deviceSettings.unitId, unitId));
     return settings;
-  }
-
-  async getDeviceSettingsByMac(deviceMac: string): Promise<DeviceSettings | undefined> {
-    const unit = await this.getUnitByEsp32Mac(deviceMac);
-    if (!unit) return undefined;
-    return this.getDeviceSettingsByUnit(unit.id);
   }
 
   async upsertDeviceSettings(settings: InsertDeviceSettings): Promise<DeviceSettings> {

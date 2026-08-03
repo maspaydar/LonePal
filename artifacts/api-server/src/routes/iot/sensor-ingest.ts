@@ -8,17 +8,29 @@ import { z } from "zod/v4";
 import fs from "fs";
 import path from "path";
 
-// The ADT branch of this endpoint verifies inbound webhooks with an HMAC signature
-// keyed on ADT_WEBHOOK_SECRET. If the secret is not configured we refuse to start
-// (same fail-loud pattern as PORT in index.ts) rather than silently accept unsigned,
-// spoofable events that could write into any tenant's data. There is deliberately no
-// "allow when unset" bypass.
-if (!process.env.ADT_WEBHOOK_SECRET) {
+// This endpoint receives events from professional security companies (ADT, Xfinity,
+// Vivint, etc. — provider-neutral) that retrofit sensors into a resident's home.
+// Every inbound webhook must carry an HMAC-SHA256 signature over the raw request
+// body, keyed on SENSOR_WEBHOOK_SECRET (legacy name ADT_WEBHOOK_SECRET is still
+// honored). There is deliberately no "allow when unset" bypass: in production we
+// refuse to start without the secret; in development the endpoint fails closed
+// with 503 so the rest of the server stays usable.
+const WEBHOOK_SECRET =
+  process.env.SENSOR_WEBHOOK_SECRET || process.env.ADT_WEBHOOK_SECRET;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+if (!WEBHOOK_SECRET && IS_PRODUCTION) {
   throw new Error(
-    "ADT_WEBHOOK_SECRET is not configured. The /api/v1/sensor-ingest ADT branch requires it to " +
-      "verify inbound webhook signatures. Set ADT_WEBHOOK_SECRET (and configure the same value on " +
-      "the ADT sender) before starting the server. Refusing to start rather than expose an " +
-      "unauthenticated ingest endpoint.",
+    "SENSOR_WEBHOOK_SECRET is not configured. POST /api/v1/sensor-ingest requires it to " +
+      "verify inbound security-provider webhook signatures. Set SENSOR_WEBHOOK_SECRET (and " +
+      "configure the same value with the security provider) before starting the server. " +
+      "Refusing to start rather than expose an unauthenticated ingest endpoint.",
+  );
+}
+if (!WEBHOOK_SECRET) {
+  dailyLogger.warn(
+    "sensor-ingest",
+    "SENSOR_WEBHOOK_SECRET is not configured — /api/v1/sensor-ingest will reject all requests with 503 until it is set.",
   );
 }
 
@@ -26,54 +38,12 @@ const router = Router();
 
 const ACTIVE_WINDOW_THRESHOLD_MS = 10 * 60 * 1000;
 
-// ─── Xfinity placeholder ───────────────────────────────────────────────────────
-/**
- * process_xfinity_motion
- *
- * Placeholder for the Rogers Xfinity API integration.
- * Replace the body of this function once the Xfinity API spec is confirmed.
- * Expected to receive the raw inbound webhook payload and return a result
- * indicating whether the event was handled and any relevant metadata.
- */
-async function process_xfinity_motion(
-  payload: Record<string, any>
-): Promise<{ handled: boolean; message: string; raw?: Record<string, any> }> {
-  dailyLogger.info(
-    "sensor-ingest",
-    "Xfinity motion payload received — placeholder active, no processing performed",
-    { payload }
-  );
-
-  // TODO: Implement Rogers Xfinity API integration.
-  // 1. Authenticate with the Xfinity API using credentials from env vars.
-  // 2. Parse the incoming payload to extract device ID, zone, motion state, and timestamp.
-  // 3. Resolve entityId and residentId from the Xfinity device registry.
-  // 4. Call storage.createMotionEvent(...) and storage.updateResidentStatus(...).
-  // 5. Return { handled: true, ... } once implemented.
-
-  return {
-    handled: false,
-    message: "Xfinity processing not yet implemented. Payload logged.",
-    raw: payload,
-  };
-}
-
-// ─── Branch schemas ────────────────────────────────────────────────────────────
-
-const esp32IngestSchema = z.object({
-  esp32_id: z.string().min(1),
-  presence_detected: z.boolean().optional(),
-  distance: z.number().int().optional(),
-  movement_energy: z.number().int().optional(),
-  stationary_energy: z.number().int().optional(),
-  is_stationary: z.boolean().optional(),
-  firmware_version: z.string().optional(),
-  signal_strength: z.number().int().optional(),
-  ip_address: z.string().optional(),
-});
-
-const adtIngestSchema = z.object({
+// ─── Payload schema ────────────────────────────────────────────────────────────
+// Provider-neutral event shape. Any security company's webhook adapter maps its
+// native payload into this schema before (or when) posting to us.
+const providerIngestSchema = z.object({
   deviceId: z.string().optional(),
+  provider: z.string().optional(),
   status: z.enum(["alarm", "stay"]),
   zone: z.string().optional(),
   residentId: z.number().int().optional(),
@@ -117,15 +87,15 @@ async function checkAndFlagInactivity(
   );
 }
 
-// ─── ADT rejection logging ─────────────────────────────────────────────────────
+// ─── Rejection logging ─────────────────────────────────────────────────────────
 /**
- * Records a rejected ADT ingest request so operators can spot legitimate traffic being
- * blocked (e.g. after a secret rotation) and roll back quickly. The secret/signature is
- * never logged. Central-log writes are only attempted for post-signature-verification
- * rejections (where `entityId` is trusted); pre-auth 401s go to the daily log only to
- * avoid touching the DB with attacker-controlled input.
+ * Records a rejected ingest request so operators can spot legitimate provider traffic
+ * being blocked (e.g. after a secret rotation) and roll back quickly. The
+ * secret/signature is never logged. Central-log writes are only attempted for
+ * post-signature-verification rejections (where `entityId` is trusted); pre-auth 401s
+ * go to the daily log only to avoid touching the DB with attacker-controlled input.
  */
-async function logAdtRejection(
+async function logIngestRejection(
   reason: string,
   detail: {
     hasSignature: boolean;
@@ -135,7 +105,7 @@ async function logAdtRejection(
   },
   toCentralLog: boolean
 ): Promise<void> {
-  const message = `ADT sensor-ingest request rejected: ${reason}`;
+  const message = `Security-provider sensor-ingest request rejected: ${reason}`;
   dailyLogger.warn("sensor-ingest", message, { reason, ...detail });
 
   if (toCentralLog && detail.claimedEntityId !== undefined) {
@@ -153,303 +123,192 @@ async function logAdtRejection(
         },
       });
     } catch (err) {
-      dailyLogger.warn("sensor-ingest", `Failed to write ADT rejection to central log: ${err}`);
+      dailyLogger.warn("sensor-ingest", `Failed to write ingest rejection to central log: ${err}`);
     }
   }
 }
 
-// ─── Unified ingest endpoint ───────────────────────────────────────────────────
+// ─── Ingest endpoint ───────────────────────────────────────────────────────────
 
 /**
  * POST /api/v1/sensor-ingest
  *
- * Unified hardware listener that accepts payloads from three security hardware types
- * and routes each to the appropriate processing branch.
+ * Signed webhook listener for retrofit security-provider sensor events (ADT,
+ * Xfinity, Vivint, or any other professional monitoring company).
  *
- * Branch routing logic:
- *   - ESP32 branch  : payload contains `esp32_id`                    → processes mmWave presence / CSI data
- *   - ADT branch    : payload contains `status: "alarm" | "stay"`    → logs event to resident activity file
- *   - Xfinity branch: all other payloads                             → forwarded to process_xfinity_motion()
+ * Security model:
+ *   1. HMAC-SHA256 signature over the raw request body (header `x-provider-signature`,
+ *      legacy `x-adt-signature` also accepted) verified BEFORE any storage access.
+ *   2. A registered provider device (matched by deviceId) is authoritative for
+ *      entity resolution; a contradicting body entityId is rejected.
+ *   3. The resolved resident must belong to the claimed entity before any write.
  *
  * Inactivity flag:
- *   After any branch completes, if no motion was detected for a resident whose
- *   lastActivityAt exceeds the active-window threshold, the resident's status is set
- *   to "alert" and an alert record is written — visible on the Facility Dashboard.
+ *   After processing, if no motion was detected for a resident whose lastActivityAt
+ *   exceeds the active-window threshold, the resident's status is set to "alert"
+ *   and an alert record is written — visible on the Facility Dashboard.
  */
 router.post("/", async (req, res) => {
   const body = req.body as Record<string, any>;
 
   try {
-    // ── ESP32 branch ────────────────────────────────────────────────────────────
-    if ("esp32_id" in body) {
-      const parsed = esp32IngestSchema.safeParse(body);
-      if (!parsed.success) {
-        return res.status(400).json({
-          branch: "esp32",
-          error: "Invalid payload",
-          details: parsed.error.issues,
-        });
-      }
-
-      const {
-        esp32_id: deviceMac,
-        presence_detected: presenceDetected = false,
-        distance,
-        movement_energy: movementEnergy,
-        stationary_energy: stationaryEnergy,
-        is_stationary: isStationary,
-        firmware_version: firmwareVersion,
-        signal_strength: signalStrength,
-        ip_address: ipAddress,
-      } = parsed.data;
-
-      const sensor = await storage.getSensorByEsp32Mac(deviceMac);
-      const unit = await storage.getUnitByEsp32Mac(deviceMac);
-
-      let entityId: number | undefined;
-      let unitId: number | undefined;
-      let residentId: number | undefined;
-      let sensorId: number | undefined;
-
-      if (sensor) {
-        entityId = sensor.entityId;
-        unitId = sensor.unitId ?? undefined;
-        residentId = sensor.residentId ?? undefined;
-        sensorId = sensor.id;
-      }
-
-      if (unit) {
-        if (entityId !== undefined && entityId !== unit.entityId) {
-          dailyLogger.warn(
-            "sensor-ingest",
-            `ESP32 cross-entity mismatch: MAC=${deviceMac} sensor entity=${entityId} unit entity=${unit.entityId}`
-          );
-          return res.status(403).json({
-            branch: "esp32",
-            error: "Device MAC is registered to a different entity. Access denied.",
-          });
-        }
-
-        entityId = entityId ?? unit.entityId;
-        unitId = unitId ?? unit.id;
-
-        const heartbeatUpdate: Record<string, any> = { esp32LastHeartbeat: new Date() };
-        if (firmwareVersion) heartbeatUpdate.esp32FirmwareVersion = firmwareVersion;
-        if (signalStrength !== undefined) heartbeatUpdate.esp32SignalStrength = signalStrength;
-        if (ipAddress) heartbeatUpdate.esp32IpAddress = ipAddress;
-        await storage.updateUnit(unit.id, heartbeatUpdate);
-
-        if (!residentId) {
-          const unitResident = await storage.getResidentByUnit(unit.id);
-          if (unitResident) residentId = unitResident.id;
-        }
-      }
-
-      if (!entityId) {
-        return res.status(404).json({
-          branch: "esp32",
-          error: "Unknown ESP32 device. Register it first via unit management.",
-        });
-      }
-
-      const sensorData = await storage.createEsp32SensorData({
-        entityId,
-        sensorId: sensorId ?? null,
-        unitId: unitId ?? null,
-        residentId: residentId ?? null,
-        deviceMac,
-        presenceDetected,
-        distance: distance ?? null,
-        movementEnergy: movementEnergy ?? null,
-        stationaryEnergy: stationaryEnergy ?? null,
-        isStationary: isStationary ?? null,
-        rawPayload: body,
+    if (!WEBHOOK_SECRET) {
+      return res.status(503).json({
+        error:
+          "Sensor ingest is not configured. Set SENSOR_WEBHOOK_SECRET to enable signed provider webhooks.",
       });
-
-      if (presenceDetected && residentId) {
-        await storage.updateResidentStatus(residentId, "safe", new Date());
-      }
-
-      if (presenceDetected && sensorId) {
-        await storage.createMotionEvent({
-          entityId,
-          sensorId,
-          residentId: residentId ?? null,
-          eventType: "presence_detected",
-          location: sensor?.location ?? `unit-${unitId ?? "unknown"}`,
-          rawPayload: body,
-        });
-      }
-
-      if (residentId) {
-        await checkAndFlagInactivity(residentId, entityId, presenceDetected);
-      }
-
-      log(`[sensor-ingest/esp32] ${deviceMac} presence=${presenceDetected}`, "sensor-ingest");
-      return res.json({ branch: "esp32", received: true, dataId: sensorData.id });
     }
 
-    // ── ADT branch ──────────────────────────────────────────────────────────────
-    if ("status" in body && (body.status === "alarm" || body.status === "stay")) {
-      // (1) The request must be provably from ADT. Verify the HMAC signature over the
-      // raw request body BEFORE any storage access (mirrors handleStripeWebhook: verify
-      // signature first, touch the database second).
-      const rawBody = (req as any).rawBody as Buffer | undefined;
-      const signature = req.headers["x-adt-signature"] as string | undefined;
-      const signedPayload = rawBody?.toString() ?? JSON.stringify(body);
+    // (1) The request must be provably from the configured security provider.
+    // Verify the HMAC signature over the raw request body BEFORE any storage access.
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const signature = (req.headers["x-provider-signature"] ??
+      req.headers["x-adt-signature"]) as string | undefined;
+    const signedPayload = rawBody?.toString() ?? JSON.stringify(body);
 
-      if (!motionService.verifySignature(signedPayload, signature)) {
-        await logAdtRejection(
-          "invalid_signature",
-          {
-            hasSignature: !!signature,
-            deviceId: typeof body.deviceId === "string" ? body.deviceId : undefined,
-            claimedEntityId: typeof body.entityId === "number" ? body.entityId : undefined,
-            claimedResidentId: typeof body.residentId === "number" ? body.residentId : undefined,
-          },
-          false
-        );
-        return res.status(401).json({ branch: "adt", error: "Invalid or missing signature" });
+    if (!motionService.verifySignature(signedPayload, signature)) {
+      await logIngestRejection(
+        "invalid_signature",
+        {
+          hasSignature: !!signature,
+          deviceId: typeof body.deviceId === "string" ? body.deviceId : undefined,
+          claimedEntityId: typeof body.entityId === "number" ? body.entityId : undefined,
+          claimedResidentId: typeof body.residentId === "number" ? body.residentId : undefined,
+        },
+        false
+      );
+      return res.status(401).json({ error: "Invalid or missing signature" });
+    }
+
+    const parsed = providerIngestSchema.safeParse(body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid payload",
+        details: parsed.error.issues,
+      });
+    }
+
+    const {
+      deviceId,
+      provider,
+      status,
+      zone,
+      residentId: bodyResidentId,
+      entityId: bodyEntityId,
+      timestamp,
+    } = parsed.data;
+
+    // (2) Resolve entity/resident. A registered provider device (matched by deviceId)
+    // is authoritative. The signed body may also supply entityId/residentId, but a
+    // body entityId that contradicts the device's registered entity is rejected.
+    const sensor = deviceId ? await storage.getSensorByProviderDeviceId(deviceId) : undefined;
+
+    if (sensor && bodyEntityId !== undefined && sensor.entityId !== bodyEntityId) {
+      await logIngestRejection(
+        "device_entity_mismatch",
+        {
+          hasSignature: true,
+          deviceId,
+          claimedEntityId: bodyEntityId,
+          claimedResidentId: bodyResidentId,
+        },
+        true
+      );
+      return res.status(403).json({
+        error: "Device is registered to a different entity. Access denied.",
+      });
+    }
+
+    const entityId: number | undefined = sensor?.entityId ?? bodyEntityId;
+    const residentId: number | undefined = sensor?.residentId ?? bodyResidentId;
+
+    if (!entityId) {
+      return res.status(400).json({
+        error:
+          "Cannot resolve entityId. Provide entityId in the payload or register the provider deviceId.",
+      });
+    }
+
+    // (3) Cross-entity ownership: the resolved resident must belong to the claimed
+    // entity before anything is written.
+    if (residentId) {
+      const resident = await storage.getResident(residentId);
+      if (!resident) {
+        return res.status(404).json({ error: `Resident ${residentId} not found` });
       }
-
-      const parsed = adtIngestSchema.safeParse(body);
-      if (!parsed.success) {
-        return res.status(400).json({
-          branch: "adt",
-          error: "Invalid payload",
-          details: parsed.error.issues,
-        });
-      }
-
-      const {
-        deviceId,
-        status,
-        zone,
-        residentId: bodyResidentId,
-        entityId: bodyEntityId,
-        timestamp,
-      } = parsed.data;
-
-      // (2) Resolve entity/resident. A registered ADT device (matched by deviceId) is
-      // authoritative. The signed body may also supply entityId/residentId, but a body
-      // entityId that contradicts the device's registered entity is rejected.
-      const sensor = deviceId ? await storage.getSensorByAdtId(deviceId) : undefined;
-
-      if (sensor && bodyEntityId !== undefined && sensor.entityId !== bodyEntityId) {
-        await logAdtRejection(
-          "device_entity_mismatch",
+      if (resident.entityId !== entityId) {
+        await logIngestRejection(
+          "resident_entity_mismatch",
           {
             hasSignature: true,
             deviceId,
-            claimedEntityId: bodyEntityId,
-            claimedResidentId: bodyResidentId,
+            claimedEntityId: entityId,
+            claimedResidentId: residentId,
           },
           true
         );
         return res.status(403).json({
-          branch: "adt",
-          error: "ADT device is registered to a different entity. Access denied.",
+          error: "Resident does not belong to the claimed entity. Access denied.",
         });
       }
-
-      const entityId: number | undefined = sensor?.entityId ?? bodyEntityId;
-      const residentId: number | undefined = sensor?.residentId ?? bodyResidentId;
-
-      if (!entityId) {
-        return res.status(400).json({
-          branch: "adt",
-          error:
-            "Cannot resolve entityId. Provide entityId in the payload or register the ADT deviceId.",
-        });
-      }
-
-      // (3) Cross-entity ownership: the resolved resident must belong to the claimed
-      // entity before anything is written (mirrors the ESP32 branch's mismatch guard).
-      if (residentId) {
-        const resident = await storage.getResident(residentId);
-        if (!resident) {
-          return res
-            .status(404)
-            .json({ branch: "adt", error: `Resident ${residentId} not found` });
-        }
-        if (resident.entityId !== entityId) {
-          await logAdtRejection(
-            "resident_entity_mismatch",
-            {
-              hasSignature: true,
-              deviceId,
-              claimedEntityId: entityId,
-              claimedResidentId: residentId,
-            },
-            true
-          );
-          return res.status(403).json({
-            branch: "adt",
-            error: "Resident does not belong to the claimed entity. Access denied.",
-          });
-        }
-      }
-
-      // (4) Verified and correctly scoped — safe to write.
-      if (residentId) {
-        const location = sensor?.location ?? zone ?? "unknown";
-
-        await storage.createMotionEvent({
-          entityId,
-          sensorId: sensor?.id ?? null,
-          residentId,
-          eventType: `adt_${status}`,
-          location,
-          rawPayload: body,
-        });
-
-        await storage.updateResidentStatus(residentId, "safe", new Date());
-
-        try {
-          provisionEntityFolder(entityId);
-          const today = new Date().toISOString().split("T")[0];
-          const logPath = path.join(
-            getEntityPath(entityId, "activity"),
-            `resident_${residentId}_${today}.jsonl`
-          );
-          fs.appendFileSync(
-            logPath,
-            JSON.stringify({
-              type: "adt_event",
-              status,
-              deviceId: deviceId ?? null,
-              zone: zone ?? null,
-              timestamp: timestamp ?? new Date().toISOString(),
-              loggedAt: new Date().toISOString(),
-            }) + "\n"
-          );
-        } catch (logErr) {
-          dailyLogger.warn("sensor-ingest", `ADT activity log write failed: ${logErr}`);
-        }
-
-        // "alarm" = sensor triggered = motion present; "stay" = system armed, no active motion
-        const motionDetected = status === "alarm";
-        await checkAndFlagInactivity(residentId, entityId, motionDetected);
-      }
-
-      dailyLogger.info(
-        "sensor-ingest",
-        `ADT event received: status=${status} device=${deviceId ?? "n/a"}`,
-        { entityId, residentId, status }
-      );
-
-      return res.json({
-        branch: "adt",
-        received: true,
-        status,
-        residentId: residentId ?? null,
-      });
     }
 
-    // ── Xfinity branch ──────────────────────────────────────────────────────────
-    const xfinityResult = await process_xfinity_motion(body);
-    log(`[sensor-ingest/xfinity] placeholder triggered`, "sensor-ingest");
-    return res.json({ branch: "xfinity", ...xfinityResult });
+    // (4) Verified and correctly scoped — safe to write.
+    if (residentId) {
+      const location = sensor?.location ?? zone ?? "unknown";
+
+      await storage.createMotionEvent({
+        entityId,
+        sensorId: sensor?.id ?? null,
+        residentId,
+        eventType: `provider_${status}`,
+        location,
+        rawPayload: body,
+      });
+
+      await storage.updateResidentStatus(residentId, "safe", new Date());
+
+      try {
+        provisionEntityFolder(entityId);
+        const today = new Date().toISOString().split("T")[0];
+        const logPath = path.join(
+          getEntityPath(entityId, "activity"),
+          `resident_${residentId}_${today}.jsonl`
+        );
+        fs.appendFileSync(
+          logPath,
+          JSON.stringify({
+            type: "provider_event",
+            provider: provider ?? sensor?.securityProvider ?? null,
+            status,
+            deviceId: deviceId ?? null,
+            zone: zone ?? null,
+            timestamp: timestamp ?? new Date().toISOString(),
+            loggedAt: new Date().toISOString(),
+          }) + "\n"
+        );
+      } catch (logErr) {
+        dailyLogger.warn("sensor-ingest", `Provider activity log write failed: ${logErr}`);
+      }
+
+      // "alarm" = sensor triggered = motion present; "stay" = system armed, no active motion
+      const motionDetected = status === "alarm";
+      await checkAndFlagInactivity(residentId, entityId, motionDetected);
+    }
+
+    dailyLogger.info(
+      "sensor-ingest",
+      `Provider event received: provider=${provider ?? "n/a"} status=${status} device=${deviceId ?? "n/a"}`,
+      { entityId, residentId, status }
+    );
+
+    log(`[sensor-ingest] ${provider ?? "provider"} status=${status}`, "sensor-ingest");
+
+    return res.json({
+      received: true,
+      status,
+      residentId: residentId ?? null,
+    });
   } catch (err: any) {
     log(`[sensor-ingest] unhandled error: ${err}`, "sensor-ingest");
     dailyLogger.warn("sensor-ingest", `Unhandled error: ${err?.message}`, { body });

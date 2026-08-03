@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
-import { Loader2, Save, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { Loader2, Save, RefreshCw } from "lucide-react";
 import {
   fetchDeviceSettings,
   saveDeviceSettings,
@@ -18,22 +18,6 @@ import { useToast } from "@/hooks/use-toast";
 
 function settingsKey(residentId: number | undefined) {
   return ["/api/mobile/device-settings", residentId] as const;
-}
-
-function StatusBadge({ connected }: { connected: boolean }) {
-  return (
-    <div
-      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${
-        connected
-          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
-          : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-      }`}
-      data-testid={`badge-device-status-${connected ? "online" : "offline"}`}
-    >
-      {connected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
-      {connected ? "Device online" : "Device offline"}
-    </div>
-  );
 }
 
 export default function ResidentDeviceSettingsPage() {
@@ -69,22 +53,10 @@ export default function ResidentDeviceSettingsPage() {
       // Re-baseline the form from the server's canonical response.
       setForm(result.settings);
       queryClient.invalidateQueries({ queryKey });
-      if (result.pushedToDevice) {
-        toast({
-          title: "Saved & pushed to device",
-          description: "Your sensor will apply the new settings immediately.",
-        });
-      } else if (result.deviceMac) {
-        toast({
-          title: "Saved",
-          description: "Device is offline — settings will apply when it reconnects.",
-        });
-      } else {
-        toast({
-          title: "Saved",
-          description: "Settings stored. No device is currently linked to your unit.",
-        });
-      }
+      toast({
+        title: "Saved",
+        description: "Your settings have been saved successfully.",
+      });
     },
     onError: (err: any) => {
       toast({
@@ -158,26 +130,13 @@ export default function ResidentDeviceSettingsPage() {
 
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-lg">Your sensor</CardTitle>
-              <StatusBadge connected={query.data.device.connected} />
-            </div>
+            <CardTitle className="text-lg">Your sensor</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1 text-sm text-muted-foreground">
             <div data-testid="text-unit-identifier">
               <span className="font-medium text-foreground">Unit:</span>{" "}
               {query.data.unitIdentifier}
             </div>
-            <div data-testid="text-device-mac">
-              <span className="font-medium text-foreground">Device:</span>{" "}
-              {query.data.deviceMac || "Not yet linked"}
-            </div>
-            {query.data.device.firmwareVersion && (
-              <div>
-                <span className="font-medium text-foreground">Firmware:</span>{" "}
-                {query.data.device.firmwareVersion}
-              </div>
-            )}
           </CardContent>
         </Card>
 
@@ -302,14 +261,14 @@ export default function ResidentDeviceSettingsPage() {
             className="flex-1 text-lg py-6"
             disabled={!dirty || mutation.isPending}
             onClick={() => mutation.mutate(form)}
-            data-testid="button-save-to-device"
+            data-testid="button-save-settings"
           >
             {mutation.isPending ? (
               <Loader2 className="w-5 h-5 mr-2 animate-spin" />
             ) : (
               <Save className="w-5 h-5 mr-2" />
             )}
-            Save to Device
+            Save Settings
           </Button>
           <Button
             variant="outline"

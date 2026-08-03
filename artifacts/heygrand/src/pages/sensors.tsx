@@ -29,7 +29,7 @@ export default function Sensors() {
     defaultValues: {
       location: "",
       sensorType: "motion",
-      adtDeviceId: "",
+      providerDeviceId: "",
     },
   });
 
@@ -87,12 +87,12 @@ export default function Sensors() {
                 />
                 <FormField
                   control={form.control}
-                  name="adtDeviceId"
+                  name="providerDeviceId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>ADT Device ID</FormLabel>
+                      <FormLabel>Security Provider Device ID</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. ADT-HALL-002" {...field} data-testid="input-sensor-adt-id" />
+                        <Input placeholder="e.g. SEC-HALL-002" {...field} data-testid="input-sensor-provider-id" />
                       </FormControl>
                     </FormItem>
                   )}
@@ -129,7 +129,7 @@ export default function Sensors() {
                 </div>
                 <div className="text-xs text-muted-foreground space-y-1">
                   <p>Type: {sensor.sensorType}</p>
-                  {sensor.adtDeviceId && <p>ADT ID: {sensor.adtDeviceId}</p>}
+                  {sensor.providerDeviceId && <p>Device ID: {sensor.providerDeviceId}</p>}
                   {sensor.residentId && <p>Assigned to Resident #{sensor.residentId}</p>}
                 </div>
               </CardContent>

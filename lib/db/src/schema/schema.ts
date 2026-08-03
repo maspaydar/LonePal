@@ -29,20 +29,19 @@ export const entities = pgTable("entities", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
-export const hardwareTypeEnum = pgEnum("hardware_type", ["adt_google", "esp32_custom"]);
+// Retrofit-only hardware model: monitoring hardware is installed and maintained by a
+// professional security company (ADT, Xfinity, etc. — provider-neutral). There is no
+// first-party device integration.
+export const hardwareTypeEnum = pgEnum("hardware_type", ["security_provider"]);
 
 export const units = pgTable("units", {
   id: serial("id").primaryKey(),
   entityId: integer("entity_id").notNull(),
   unitIdentifier: text("unit_identifier").notNull(),
   label: text("label"),
-  hardwareType: hardwareTypeEnum("hardware_type").notNull().default("adt_google"),
+  hardwareType: hardwareTypeEnum("hardware_type").notNull().default("security_provider"),
+  securityProvider: text("security_provider"),
   smartSpeakerId: text("smart_speaker_id"),
-  esp32DeviceMac: text("esp32_device_mac"),
-  esp32FirmwareVersion: text("esp32_firmware_version"),
-  esp32LastHeartbeat: timestamp("esp32_last_heartbeat"),
-  esp32IpAddress: text("esp32_ip_address"),
-  esp32SignalStrength: integer("esp32_signal_strength"),
   floor: text("floor"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
@@ -82,25 +81,10 @@ export const sensors = pgTable("sensors", {
   residentId: integer("resident_id"),
   sensorType: text("sensor_type").notNull().default("motion"),
   location: text("location").notNull(),
-  adtDeviceId: text("adt_device_id"),
-  esp32DeviceMac: text("esp32_device_mac"),
+  // Device ID assigned by the retrofit security provider (ADT, Xfinity, etc.)
+  providerDeviceId: text("provider_device_id"),
+  securityProvider: text("security_provider"),
   isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
-
-export const esp32SensorData = pgTable("esp32_sensor_data", {
-  id: serial("id").primaryKey(),
-  entityId: integer("entity_id").notNull(),
-  sensorId: integer("sensor_id"),
-  unitId: integer("unit_id"),
-  residentId: integer("resident_id"),
-  deviceMac: text("device_mac").notNull(),
-  presenceDetected: boolean("presence_detected").notNull(),
-  distance: integer("distance"),
-  movementEnergy: integer("movement_energy"),
-  stationaryEnergy: integer("stationary_energy"),
-  isStationary: boolean("is_stationary"),
-  rawPayload: jsonb("raw_payload"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
@@ -204,7 +188,6 @@ export const insertEntitySchema = createInsertSchema(entities).omit({ id: true, 
 export const insertUnitSchema = createInsertSchema(units).omit({ id: true, createdAt: true });
 export const insertResidentSchema = createInsertSchema(residents).omit({ id: true, createdAt: true, lastActivityAt: true });
 export const insertSensorSchema = createInsertSchema(sensors).omit({ id: true, createdAt: true });
-export const insertEsp32SensorDataSchema = createInsertSchema(esp32SensorData).omit({ id: true, createdAt: true });
 export const insertMotionEventSchema = createInsertSchema(motionEvents).omit({ id: true, createdAt: true });
 export const insertScenarioConfigSchema = createInsertSchema(scenarioConfigs).omit({ id: true, createdAt: true });
 export const insertActiveScenarioSchema = createInsertSchema(activeScenarios).omit({ id: true, createdAt: true });
@@ -366,7 +349,6 @@ export const deviceSettings = pgTable("device_settings", {
   id: serial("id").primaryKey(),
   entityId: integer("entity_id").notNull(),
   unitId: integer("unit_id").notNull().unique(),
-  deviceMac: text("device_mac"),
   sensitivity: integer("sensitivity").notNull().default(50),
   detectionDistance: integer("detection_distance").notNull().default(400),
   aiCheckInFrequency: integer("ai_check_in_frequency").notNull().default(60),
@@ -501,8 +483,6 @@ export interface OnboardingProfile {
 }
 export type Sensor = typeof sensors.$inferSelect;
 export type InsertSensor = z.infer<typeof insertSensorSchema>;
-export type Esp32SensorData = typeof esp32SensorData.$inferSelect;
-export type InsertEsp32SensorData = z.infer<typeof insertEsp32SensorDataSchema>;
 export type MotionEvent = typeof motionEvents.$inferSelect;
 export type InsertMotionEvent = z.infer<typeof insertMotionEventSchema>;
 export type ScenarioConfig = typeof scenarioConfigs.$inferSelect;
@@ -547,7 +527,7 @@ export type RecoveryExecutionLog = typeof recoveryExecutionLogs.$inferSelect;
 export type InsertRecoveryExecutionLog = z.infer<typeof insertRecoveryExecutionLogSchema>;
 
 // Service Providers — third-party operators that set up the platform for an entity.
-// `integration_sp` connects ADT / motion-detector hardware and facility environments.
+// `integration_sp` connects retrofit security-provider hardware (ADT, Xfinity, etc.) and facility environments.
 // `agent_sp` configures resident companion agents and runs onboarding interviews.
 export const serviceProviderTypeEnum = pgEnum("service_provider_type", ["integration_sp", "agent_sp"]);
 export const serviceProviderStatusEnum = pgEnum("service_provider_status", ["registered", "in_training", "certified", "approved"]);

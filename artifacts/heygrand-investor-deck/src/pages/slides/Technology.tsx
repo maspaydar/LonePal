@@ -12,21 +12,21 @@ export default function Technology() {
 
         <div className="mt-[3.5vh] grid grid-cols-2 gap-[2.5vw]">
           <div className="rounded-[1.2vw] bg-accent p-[1.9vw] ring-1 ring-primary/20">
-            <p className="font-hand text-[2.2vw] text-primary">Option A · Retrofit</p>
+            <p className="font-hand text-[2.2vw] text-primary">Retrofit-first</p>
             <p className="mt-[0.8vh] font-display text-[2.5vw] font-bold text-ink leading-tight">
-              ADT sensors via Google Home
+              Professional security sensors
             </p>
             <p className="mt-[1vh] font-body text-[2.2vw] leading-snug text-text/70 text-pretty">
-              Use the motion sensors a facility already owns.
+              Installed by ADT, Xfinity, or any monitoring company.
             </p>
           </div>
           <div className="rounded-[1.2vw] bg-ink p-[1.9vw]">
-            <p className="font-hand text-[2.2vw] text-primary">Option B · Purpose-built</p>
+            <p className="font-hand text-[2.2vw] text-primary">Zero new hardware</p>
             <p className="mt-[0.8vh] font-display text-[2.5vw] font-bold text-bg leading-tight">
-              ESP32 + mmWave presence
+              Signed provider webhooks
             </p>
             <p className="mt-[1vh] font-body text-[2.2vw] leading-snug text-bg/70 text-pretty">
-              Radar units sense movement and falls — never images.
+              Motion events stream in securely — never images.
             </p>
           </div>
         </div>
