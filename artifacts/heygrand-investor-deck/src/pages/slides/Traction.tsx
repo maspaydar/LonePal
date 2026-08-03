@@ -16,7 +16,7 @@ export default function Traction() {
             <div className="mt-[1.8vh] flex flex-col gap-[1.5vh]">
               <p className="font-body text-[2.3vw] leading-snug text-ink">Multi-tenant platform, live</p>
               <p className="font-body text-[2.3vw] leading-snug text-ink">Dual-agent AI companion</p>
-              <p className="font-body text-[2.3vw] leading-snug text-ink">Dual hardware support</p>
+              <p className="font-body text-[2.3vw] leading-snug text-ink">Security-provider integrations</p>
               <p className="font-body text-[2.3vw] leading-snug text-ink">Stripe billing + lifecycle</p>
               <p className="font-body text-[2.3vw] leading-snug text-ink">Super-admin ops with 2FA</p>
             </div>

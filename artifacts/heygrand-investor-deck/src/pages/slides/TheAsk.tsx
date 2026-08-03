@@ -32,8 +32,8 @@ export default function TheAsk() {
               <p className="mt-[0.8vh] font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Sales into senior-living operators.</p>
             </div>
             <div className="rounded-[1vw] bg-bg/8 p-[1.8vw] ring-1 ring-bg/12">
-              <p className="font-display text-[2.2vw] font-bold text-primary">Hardware &amp; supply</p>
-              <p className="mt-[0.8vh] font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Scale the purpose-built sensor line.</p>
+              <p className="font-display text-[2.2vw] font-bold text-primary">Provider partnerships</p>
+              <p className="mt-[0.8vh] font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Certify major security companies.</p>
             </div>
             <div className="rounded-[1vw] bg-bg/8 p-[1.8vw] ring-1 ring-bg/12">
               <p className="font-display text-[2.2vw] font-bold text-primary">AI &amp; platform</p>

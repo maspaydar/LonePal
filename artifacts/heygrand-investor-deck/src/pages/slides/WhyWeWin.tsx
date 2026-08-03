@@ -41,8 +41,8 @@ export default function WhyWeWin() {
           </div>
           <div className="flex items-baseline gap-[2vw] border-b border-bg/12 pb-[1.8vh]">
             <span className="w-[4vw] shrink-0 font-display text-[2.6vw] font-extrabold text-primary">04</span>
-            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Dual-hardware flexibility</p>
-            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Existing ADT, or our own units.</p>
+            <p className="w-[28vw] shrink-0 font-display text-[2.5vw] font-bold text-bg">Zero hardware risk</p>
+            <p className="flex-1 font-body text-[2.3vw] leading-snug text-bg/70 text-pretty">Works with ADT, Xfinity — any provider.</p>
           </div>
           <div className="flex items-baseline gap-[2vw]">
             <span className="w-[4vw] shrink-0 font-display text-[2.6vw] font-extrabold text-primary">05</span>

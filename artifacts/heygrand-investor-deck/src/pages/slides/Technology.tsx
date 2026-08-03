@@ -47,7 +47,7 @@ export default function Technology() {
           <div className="rounded-[1vw] p-[1.6vw] ring-1 ring-line bg-bg">
             <p className="font-display text-[2.3vw] font-bold text-ink leading-tight">Secure by default</p>
             <p className="mt-[0.8vh] font-body text-[2.2vw] leading-snug text-muted text-pretty">
-              HMAC-signed devices, per-facility isolation.
+              Signed provider webhooks, per-facility isolation.
             </p>
           </div>
         </div>
